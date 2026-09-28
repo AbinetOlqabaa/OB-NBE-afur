@@ -84,12 +84,10 @@ export const BiometricPromptModal: React.FC<BiometricPromptModalProps> = ({
 
       if (initialMethod && ((initialMethod === 'FINGERPRINT' && isFingerprintSupported) || (initialMethod === 'FACE' && isCameraSupported))) {
         setAuthType(initialMethod);
-      } else if (isCameraSupported && !isFingerprintSupported) {
+      } else if (initialMethod === 'FACE' || (isCameraSupported && !isFingerprintSupported)) {
         setAuthType('FACE');
-      } else if (isFingerprintSupported) {
+      } else if (initialMethod === 'FINGERPRINT' || isFingerprintSupported) {
         setAuthType('FINGERPRINT');
-      } else if (isCameraSupported) {
-        setAuthType('FACE');
       } else {
         setAuthType(isCameraSupported ? 'FACE' : 'FINGERPRINT');
       }
@@ -150,21 +148,34 @@ export const BiometricPromptModal: React.FC<BiometricPromptModalProps> = ({
     }).catch(() => {});
   }, [authType, stopCameraStream, userEmail, userName, userRole]);
 
+  // Request browser camera stream with user permission
+  const requestCameraStream = useCallback(async () => {
+    setStatusMessage('Requesting camera access...');
+    try {
+      const res = await startCameraStream(videoRef.current);
+      if (res.success) {
+        setCameraActive(true);
+        setStatusMessage('Center your face in the camera frame');
+        return true;
+      } else {
+        setCameraActive(false);
+        setStatusMessage(res.error || 'Unable to access device camera.');
+        return false;
+      }
+    } catch (err: any) {
+      setCameraActive(false);
+      setStatusMessage(err?.message || 'Camera permission denied.');
+      return false;
+    }
+  }, [startCameraStream]);
+
   // Manage camera stream when switching to/from FACE mode
   useEffect(() => {
     let active = true;
 
-    if (isOpen && authType === 'FACE' && isCameraSupported && scanState !== 'TIMEOUT') {
-      setStatusMessage('Opening device camera...');
-      startCameraStream(videoRef.current).then((res) => {
+    if (isOpen && authType === 'FACE' && scanState !== 'TIMEOUT') {
+      requestCameraStream().then((success) => {
         if (!active) return;
-        if (res.success) {
-          setCameraActive(true);
-          setStatusMessage('Center your face in the camera frame');
-        } else {
-          setCameraActive(false);
-          setStatusMessage(res.error || 'Unable to access camera.');
-        }
       });
     } else {
       stopCameraStream();
@@ -175,7 +186,7 @@ export const BiometricPromptModal: React.FC<BiometricPromptModalProps> = ({
       active = false;
       stopCameraStream();
     };
-  }, [isOpen, authType, isCameraSupported, scanState, startCameraStream, stopCameraStream]);
+  }, [isOpen, authType, scanState, requestCameraStream, stopCameraStream]);
 
   if (!isOpen) return null;
 
@@ -198,13 +209,8 @@ export const BiometricPromptModal: React.FC<BiometricPromptModalProps> = ({
     setScanState('IDLE');
     setStatusMessage(null);
 
-    if (authType === 'FACE' && isCameraSupported) {
-      startCameraStream(videoRef.current).then((res) => {
-        if (res.success) {
-          setCameraActive(true);
-          setStatusMessage('Center your face in the camera frame');
-        }
-      });
+    if (authType === 'FACE') {
+      requestCameraStream();
     }
   };
 
@@ -348,11 +354,21 @@ export const BiometricPromptModal: React.FC<BiometricPromptModalProps> = ({
         {/* Top Header */}
         <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800/80">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-              <ShieldCheck className="w-3.5 h-3.5" />
+            <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${
+              authType === 'FACE'
+                ? 'bg-teal-500/20 text-teal-600 dark:text-teal-400'
+                : 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+            }`}>
+              {authType === 'FACE' ? <ScanFace className="w-3.5 h-3.5" /> : <ShieldCheck className="w-3.5 h-3.5" />}
             </div>
             <span className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-              {mode === 'REGISTER' ? 'Register Biometric Passkey' : 'Biometric Sign-In'}
+              {mode === 'REGISTER'
+                ? authType === 'FACE'
+                  ? 'Register Face ID Passkey'
+                  : 'Register Fingerprint Passkey'
+                : authType === 'FACE'
+                ? 'Face ID Webcam Sign-In'
+                : 'Fingerprint Biometric Sign-In'}
             </span>
           </div>
           <button
@@ -386,26 +402,28 @@ export const BiometricPromptModal: React.FC<BiometricPromptModalProps> = ({
         {/* Device Hardware Support Summary & Inactivity Countdown Pill */}
         <div className="text-[11px] px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-[#181C3B] border border-slate-200 dark:border-[#2B3369] flex items-center justify-between gap-1.5">
           <div className="flex items-center gap-1.5">
-            <span className="text-slate-500 dark:text-slate-400 font-medium">Sensors:</span>
-            {isFingerprintSupported && isCameraSupported ? (
-              <span className="text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                Both Ready
-              </span>
+            <span className="text-slate-500 dark:text-slate-400 font-medium">Status:</span>
+            {authType === 'FACE' ? (
+              cameraActive ? (
+                <span className="text-teal-700 dark:text-teal-300 font-bold flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse"></span>
+                  Face ID Webcam Ready
+                </span>
+              ) : (
+                <span className="text-amber-700 dark:text-amber-400 font-bold flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></span>
+                  Webcam Awaiting Permission
+                </span>
+              )
             ) : isFingerprintSupported ? (
               <span className="text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                Fingerprint
-              </span>
-            ) : isCameraSupported ? (
-              <span className="text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                Webcam
+                Fingerprint Sensor Ready
               </span>
             ) : (
               <span className="text-amber-700 dark:text-amber-400 font-bold flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                None
+                Sensor Unavailable
               </span>
             )}
             <button
@@ -479,12 +497,12 @@ export const BiometricPromptModal: React.FC<BiometricPromptModalProps> = ({
             onClick={() => handleSwitchType('FACE')}
             className={`min-h-[48px] p-1.5 flex flex-col items-center justify-center rounded-xl text-xs font-bold transition-all relative ${
               authType === 'FACE' && isCameraSupported
-                ? 'bg-white dark:bg-[#1C2145] text-emerald-600 dark:text-emerald-400 shadow-sm border border-emerald-500/40 cursor-pointer touch-press'
+                ? 'bg-white dark:bg-[#1C2145] text-teal-600 dark:text-teal-400 shadow-sm border border-teal-500/40 cursor-pointer touch-press'
                 : isCameraSupported
                 ? 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer touch-press'
                 : 'opacity-40 text-slate-400 dark:text-slate-600 cursor-not-allowed bg-slate-200/40 dark:bg-slate-800/40'
             }`}
-            title={isCameraSupported ? 'Switch to Face ID camera' : 'Webcam or camera not detected on this device'}
+            title={isCameraSupported ? 'Switch to Face ID webcam' : 'Webcam or camera not detected on this device'}
           >
             <div className="flex items-center gap-1.5">
               <ScanFace className="w-4 h-4" />
@@ -493,16 +511,16 @@ export const BiometricPromptModal: React.FC<BiometricPromptModalProps> = ({
             <span
               className={`text-[9px] flex items-center gap-1 font-normal ${
                 isCameraSupported
-                  ? 'text-emerald-600 dark:text-emerald-400 font-semibold'
+                  ? 'text-teal-600 dark:text-teal-400 font-semibold'
                   : 'text-slate-400 dark:text-slate-500'
               }`}
             >
               <span
                 className={`w-1.5 h-1.5 rounded-full ${
-                  isCameraSupported ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
+                  cameraActive ? 'bg-teal-500 animate-pulse' : isCameraSupported ? 'bg-amber-500' : 'bg-slate-400'
                 }`}
               ></span>
-              {isCameraSupported ? 'Webcam Ready' : 'Inactive / None'}
+              {cameraActive ? 'Webcam Ready' : isCameraSupported ? 'Click to Enable' : 'Inactive / None'}
             </span>
           </button>
         </div>
@@ -541,39 +559,62 @@ export const BiometricPromptModal: React.FC<BiometricPromptModalProps> = ({
         ) : (
           <div className="py-2 flex flex-col items-center justify-center space-y-3">
             {authType === 'FACE' ? (
-              /* Live Camera Viewport */
-              <div className="relative w-36 h-36 rounded-full overflow-hidden border-3 border-emerald-500/50 bg-slate-900 shadow-lg shadow-emerald-500/20 flex items-center justify-center">
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className={`w-full h-full object-cover transition-opacity duration-300 ${
-                    cameraActive ? 'opacity-100 scale-x-[-1]' : 'opacity-0'
-                  }`}
-                />
+              /* Live Camera Viewport with Camera Permission Request */
+              <div className="flex flex-col items-center gap-2">
+                <div className="relative w-36 h-36 rounded-full overflow-hidden border-3 border-teal-500/50 bg-slate-900 shadow-lg shadow-teal-500/20 flex items-center justify-center">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className={`w-full h-full object-cover transition-opacity duration-300 ${
+                      cameraActive ? 'opacity-100 scale-x-[-1]' : 'opacity-0'
+                    }`}
+                  />
+
+                  {!cameraActive && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center p-3 text-slate-300 text-xs text-center bg-slate-950/80">
+                      <Camera className="w-7 h-7 mb-1 text-teal-400 animate-pulse" />
+                      <span className="font-semibold text-[11px]">
+                        {statusMessage?.includes('denied') ? 'Camera Access Needed' : 'Activating Camera...'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={requestCameraStream}
+                        className="mt-2 px-2.5 py-1 text-[10px] font-bold bg-teal-600 hover:bg-teal-500 text-white rounded-lg shadow cursor-pointer touch-press transition-all flex items-center gap-1"
+                      >
+                        <ScanFace className="w-3 h-3" />
+                        <span>Allow Camera</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Facial Scanning Reticle Ring & Oval Guide */}
+                  {cameraActive && (
+                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                      <div className="w-24 h-32 border border-dashed border-teal-400/80 rounded-[50%] animate-pulse"></div>
+                      {scanState === 'SCANNING' && (
+                        <div className="absolute top-0 left-0 right-0 h-1 bg-teal-400 shadow-md shadow-teal-400 animate-bounce"></div>
+                      )}
+                    </div>
+                  )}
+
+                  {scanState === 'SUCCESS' && (
+                    <div className="absolute inset-0 bg-emerald-600/80 flex items-center justify-center text-white backdrop-blur-xs">
+                      <CheckCircle2 className="w-12 h-12 text-white animate-in zoom-in-75 duration-200" />
+                    </div>
+                  )}
+                </div>
 
                 {!cameraActive && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center p-3 text-slate-400 text-xs">
-                    <Camera className="w-8 h-8 mb-1 text-slate-500 animate-pulse" />
-                    <span>Activating Camera...</span>
-                  </div>
-                )}
-
-                {/* Facial Scanning Reticle Ring & Oval Guide */}
-                {cameraActive && (
-                  <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                    <div className="w-24 h-32 border border-dashed border-emerald-400/70 rounded-[50%] animate-pulse"></div>
-                    {scanState === 'SCANNING' && (
-                      <div className="absolute top-0 left-0 right-0 h-1 bg-emerald-400 shadow-md shadow-emerald-400 animate-bounce"></div>
-                    )}
-                  </div>
-                )}
-
-                {scanState === 'SUCCESS' && (
-                  <div className="absolute inset-0 bg-emerald-600/80 flex items-center justify-center text-white backdrop-blur-xs">
-                    <CheckCircle2 className="w-12 h-12 text-white animate-in zoom-in-75 duration-200" />
-                  </div>
+                  <button
+                    type="button"
+                    onClick={requestCameraStream}
+                    className="text-xs font-bold text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Click here to allow camera access</span>
+                  </button>
                 )}
               </div>
             ) : (
@@ -619,19 +660,19 @@ export const BiometricPromptModal: React.FC<BiometricPromptModalProps> = ({
                   : scanState === 'ERROR'
                   ? 'Authentication Not Completed'
                   : authType === 'FACE'
-                  ? mode === 'REGISTER'
-                    ? 'Look at Camera to Register Face'
-                    : 'Look at Camera to Sign In'
-                  : `Tap Sensor to ${mode === 'REGISTER' ? 'Register Fingerprint' : 'Authenticate'}`}
+                  ? cameraActive
+                    ? 'Face ID Webcam Ready'
+                    : 'Camera Access Required'
+                  : 'Fingerprint Sensor Ready'}
               </h4>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {statusMessage ||
                   (authType === 'FACE'
                     ? cameraActive
-                      ? 'Center your face within the guide reticle'
-                      : 'Awaiting camera permission'
+                      ? 'Webcam ready • Center your face within the guide reticle'
+                      : 'Please grant camera access in your browser to proceed'
                     : isFingerprintSupported
-                    ? 'Touch device fingerprint reader when prompted'
+                    ? 'Touch device fingerprint sensor or platform passkey'
                     : 'Use device platform sensor or switch to camera')}
               </p>
             </div>
@@ -677,41 +718,57 @@ export const BiometricPromptModal: React.FC<BiometricPromptModalProps> = ({
             </button>
           ) : (
             <>
-              <button
-                type="button"
-                onClick={handleExecuteBiometric}
-                disabled={scanState === 'SCANNING' || scanState === 'SUCCESS' || (authType === 'FINGERPRINT' && !isFingerprintSupported) || (authType === 'FACE' && !isCameraSupported)}
-                className="w-full min-h-[44px] py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white font-bold text-xs sm:text-sm rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer touch-press"
-              >
-                {scanState === 'SUCCESS' ? (
-                  <>
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>Verified • Complete</span>
-                  </>
-                ) : scanState === 'SCANNING' ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Analyzing Biometrics...</span>
-                  </>
-                ) : (
-                  <>
-                    {authType === 'FINGERPRINT' ? (
-                      <Fingerprint className="w-4 h-4" />
-                    ) : (
-                      <Camera className="w-4 h-4" />
-                    )}
-                    <span>
-                      {mode === 'REGISTER'
-                        ? authType === 'FACE'
-                          ? 'Capture & Register Face'
-                          : 'Scan & Register Fingerprint'
-                        : authType === 'FACE'
-                        ? 'Scan Face to Sign In'
-                        : 'Scan Fingerprint to Sign In'}
-                    </span>
-                  </>
-                )}
-              </button>
+              {authType === 'FACE' && !cameraActive ? (
+                /* Primary Camera Activation Button when Camera isn't active yet */
+                <button
+                  type="button"
+                  onClick={requestCameraStream}
+                  className="w-full min-h-[44px] py-2.5 px-4 bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs sm:text-sm rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer touch-press"
+                >
+                  <Camera className="w-4 h-4" />
+                  <span>Allow Camera Access / Start Webcam</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleExecuteBiometric}
+                  disabled={scanState === 'SCANNING' || scanState === 'SUCCESS' || (authType === 'FINGERPRINT' && !isFingerprintSupported) || (authType === 'FACE' && !cameraActive && !isCameraSupported)}
+                  className={`w-full min-h-[44px] py-2.5 px-4 disabled:opacity-60 text-white font-bold text-xs sm:text-sm rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer touch-press ${
+                    authType === 'FACE'
+                      ? 'bg-teal-600 hover:bg-teal-500'
+                      : 'bg-emerald-600 hover:bg-emerald-500'
+                  }`}
+                >
+                  {scanState === 'SUCCESS' ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Verified • Complete</span>
+                    </>
+                  ) : scanState === 'SCANNING' ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Analyzing Biometrics...</span>
+                    </>
+                  ) : (
+                    <>
+                      {authType === 'FINGERPRINT' ? (
+                        <Fingerprint className="w-4 h-4" />
+                      ) : (
+                        <ScanFace className="w-4 h-4" />
+                      )}
+                      <span>
+                        {mode === 'REGISTER'
+                          ? authType === 'FACE'
+                            ? 'Capture & Register Face'
+                            : 'Scan & Register Fingerprint'
+                          : authType === 'FACE'
+                          ? 'Scan Face to Sign In'
+                          : 'Scan Fingerprint to Sign In'}
+                      </span>
+                    </>
+                  )}
+                </button>
+              )}
 
               <button
                 type="button"
