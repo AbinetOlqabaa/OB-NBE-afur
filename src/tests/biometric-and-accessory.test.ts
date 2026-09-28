@@ -517,5 +517,84 @@ export async function runBiometricAndAccessoryTests() {
   });
   assert(Boolean(regElement) && regElement.type === RegisterPage, 'RegisterPage element instantiated successfully with hardware capability checks');
 
+  // 13. Verify Multi-Layer Distinction: Hardware-Level, Browser API, and User Permissions/Preferences
+  console.log('\n--- 13. Multi-Layer Hardware, WebAuthn API, and User Permissions Distinction ---');
+  const {
+    checkHardwareLevelSupport,
+    checkBrowserApiAvailability,
+    checkUserPermissions,
+    isBiometricLoginEnabled,
+    setBiometricLoginEnabled,
+    subscribeToBiometricPreferenceChanges,
+  } = await import('../utils/deviceCapabilities.ts');
+
+  assert(typeof checkHardwareLevelSupport === 'function', 'checkHardwareLevelSupport exported as async function');
+  assert(typeof checkBrowserApiAvailability === 'function', 'checkBrowserApiAvailability exported as async function');
+  assert(typeof checkUserPermissions === 'function', 'checkUserPermissions exported as async function');
+  assert(typeof isBiometricLoginEnabled === 'function', 'isBiometricLoginEnabled exported as function');
+  assert(typeof setBiometricLoginEnabled === 'function', 'setBiometricLoginEnabled exported as function');
+
+  // Test 13a: Layer 1 Hardware Support
+  const hwLayer = await checkHardwareLevelSupport();
+  assert('hasPhysicalCamera' in hwLayer, 'hwLayer has hasPhysicalCamera boolean');
+  assert('hasPhysicalFingerprintSensor' in hwLayer, 'hwLayer has hasPhysicalFingerprintSensor boolean');
+  assert('status' in hwLayer, 'hwLayer has status level');
+  assert(typeof hwLayer.reason === 'string', 'hwLayer has explanatory hardware reason');
+
+  // Test 13b: Layer 2 Browser API Availability
+  const apiLayer = await checkBrowserApiAvailability();
+  assert('webAuthn' in apiLayer, 'apiLayer checks webAuthn');
+  assert('platformAuthenticator' in apiLayer, 'apiLayer checks platformAuthenticator');
+  assert('mediaDevices' in apiLayer, 'apiLayer checks mediaDevices');
+  assert('secureContext' in apiLayer, 'apiLayer checks secureContext');
+  assert('status' in apiLayer, 'apiLayer has status');
+
+  // Test 13c: Layer 3 User Permissions & Individual Preferences
+  const permLayer = await checkUserPermissions('maker@oromiabank.com');
+  assert('camera' in permLayer, 'permLayer has camera permission state');
+  assert('isCameraDenied' in permLayer, 'permLayer has isCameraDenied boolean');
+  assert('isUserBiometricEnabled' in permLayer, 'permLayer has isUserBiometricEnabled boolean');
+  assert('status' in permLayer, 'permLayer has permission status level');
+
+  // Test 13d: Individual Biometric Login Toggle Settings
+  const testUserEmail = 'test.officer@oromiabank.com';
+  // Default is true
+  assert(isBiometricLoginEnabled(testUserEmail) === true, 'Default biometric login is enabled');
+
+  // Disable individually for test user
+  setBiometricLoginEnabled(false, testUserEmail);
+  assert(isBiometricLoginEnabled(testUserEmail) === false, 'Biometric login disabled individually for user');
+
+  // Check capabilities reflect USER_DISABLED
+  const userDisabledCaps = await getDeviceCapabilities(testUserEmail);
+  assert(userDisabledCaps.fingerprintStatus.statusLevel === 'USER_DISABLED', 'fingerprintStatus is USER_DISABLED when user toggles off');
+  assert(userDisabledCaps.cameraStatus.statusLevel === 'USER_DISABLED', 'cameraStatus is USER_DISABLED when user toggles off');
+  assert(userDisabledCaps.isBiometricEnabledByUser === false, 'isBiometricEnabledByUser is false');
+
+  // Re-enable individually for test user
+  setBiometricLoginEnabled(true, testUserEmail);
+  assert(isBiometricLoginEnabled(testUserEmail) === true, 'Biometric login re-enabled individually for user');
+
+  // Test 13e: Verify Sidebar Component with Biometric Login Toggle
+  const { Sidebar } = await import('../components/Sidebar.tsx');
+  assert(typeof Sidebar === 'function', 'Sidebar exported as React functional component');
+
+  const sidebarElement = React.createElement(Sidebar, {
+    activeTab: 'MAKER_WORKSPACE',
+    onSelectTab: () => {},
+    currentUser: {
+      id: 'usr_maker_1',
+      name: 'Abebe Kebede',
+      email: 'abebe.kebede@oromiabank.com',
+      role: 'MAKER',
+      institutionCode: '0000013',
+      department: 'Credit Operations & Portfolio Management',
+    },
+    pendingCheckerCount: 2,
+    isCollapsed: false,
+    onToggleCollapse: () => {},
+  });
+  assert(Boolean(sidebarElement) && sidebarElement.type === Sidebar, 'Sidebar instantiated successfully with User Settings Biometric Login toggle');
+
   console.log('✓ All Biometric WebAuthn, Face ID, OTP, Password Reset & Hardware Capability tests passed successfully.');
 }

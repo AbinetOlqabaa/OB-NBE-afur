@@ -26,6 +26,7 @@ import { NbeSimulatorView } from './components/NbeSimulatorView';
 import { Phase2SSOTView } from './components/Phase2SSOTView';
 import { AuditTrailView } from './components/AuditTrailView';
 import { DocumentationView } from './components/DocumentationView';
+import { SystemHealthDashboard } from './components/SystemHealthDashboard';
 import { LoginPage } from './components/LoginPage';
 import { RegisterPage } from './components/RegisterPage';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
@@ -224,6 +225,15 @@ export default function App() {
         setActiveTab('DOCUMENTATION');
         setEditingSubmission(null);
         showToast('Navigated to NBE Specifications & Documentation (Ctrl+Shift+D)');
+        return;
+      }
+
+      // 11. Ctrl+Shift+H / Cmd+Shift+H: Jump to System Health
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'h') {
+        e.preventDefault();
+        setActiveTab('SYSTEM_HEALTH');
+        setEditingSubmission(null);
+        showToast('Navigated to System Health Telemetry Dashboard (Ctrl+Shift+H)');
         return;
       }
     };
@@ -683,6 +693,10 @@ export default function App() {
               )}
 
               {activeTab === 'AUDIT_TRAIL' && <AuditTrailView />}
+
+              {activeTab === 'SYSTEM_HEALTH' && (
+                <SystemHealthDashboard currentUser={currentUser} />
+              )}
 
               {activeTab === 'DOCUMENTATION' && <DocumentationView templates={templates} />}
             </>

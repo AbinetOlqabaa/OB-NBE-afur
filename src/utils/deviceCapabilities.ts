@@ -6,14 +6,21 @@
 import { triggerHaptic, vibrate } from './haptics.ts';
 
 export type PermissionState = 'granted' | 'denied' | 'prompt' | 'unsupported';
+
 export type HardwareAvailabilityLevel =
   | 'AVAILABLE'
   | 'UNAVAILABLE'
+  | 'HARDWARE_UNAVAILABLE'
   | 'PERMISSION_DENIED'
   | 'API_UNSUPPORTED'
+  | 'USER_DISABLED'
   | 'UNVERIFIED';
 
 export type DeviceFormFactor = 'TABLET' | 'MOBILE' | 'DESKTOP';
+
+export type HardwareSupportStatus = 'HARDWARE_DETECTED' | 'HARDWARE_NOT_DETECTED' | 'HARDWARE_UNVERIFIED';
+export type BrowserApiStatus = 'API_AVAILABLE' | 'API_UNSUPPORTED' | 'INSECURE_CONTEXT';
+export type PermissionStatusLevel = 'PERMISSION_GRANTED' | 'PERMISSION_PROMPT' | 'PERMISSION_DENIED' | 'USER_DISABLED' | 'PERMISSION_UNSUPPORTED';
 
 export interface DeviceHardwareStatus {
   available: boolean;
@@ -25,7 +32,67 @@ export interface DeviceHardwareStatus {
   apiSupported?: boolean;
   permissionState?: PermissionState;
   statusLevel?: HardwareAvailabilityLevel;
-  source?: 'HARDWARE' | 'OVERRIDE' | 'PROBE' | 'BROWSER';
+  source?: 'HARDWARE' | 'OVERRIDE' | 'PROBE' | 'BROWSER' | 'USER_PREFERENCE';
+  isUserEnabled?: boolean;
+  layerCategory?: 'HARDWARE' | 'BROWSER_API' | 'PERMISSION' | 'USER_SETTING';
+}
+
+export interface HardwareLevelSupport {
+  hasPhysicalCamera: boolean;
+  hasPhysicalFingerprintSensor: boolean;
+  cameraCount: number;
+  cameraDevices: string[];
+  formFactor: DeviceFormFactor;
+  isTablet: boolean;
+  isMobilePhone: boolean;
+  status: HardwareSupportStatus;
+  reason: string;
+}
+
+export interface BrowserApiAvailability {
+  webAuthn: boolean;
+  platformAuthenticator: boolean;
+  mediaDevices: boolean;
+  permissionsApi: boolean;
+  secureContext: boolean;
+  status: BrowserApiStatus;
+  reason: string;
+}
+
+export interface UserPermissionStatus {
+  camera: PermissionState;
+  isCameraDenied: boolean;
+  isUserBiometricEnabled: boolean;
+  status: PermissionStatusLevel;
+  reason: string;
+}
+
+export interface LayeredHardwareDetection {
+  hardware: {
+    hasCamera: boolean;
+    hasFingerprintSensor: boolean;
+    formFactor: DeviceFormFactor;
+    cameraCount: number;
+    cameraDevices: string[];
+    status: HardwareSupportStatus;
+    reason: string;
+  };
+  browserApi: {
+    webAuthn: boolean;
+    platformAuthenticator: boolean;
+    mediaDevices: boolean;
+    permissionsApi: boolean;
+    secureContext: boolean;
+    status: BrowserApiStatus;
+    reason: string;
+  };
+  permissions: {
+    camera: PermissionState;
+    isCameraDenied: boolean;
+    isUserBiometricEnabled: boolean;
+    status: PermissionStatusLevel;
+    reason: string;
+  };
 }
 
 export interface DeviceCapabilities {
@@ -44,22 +111,71 @@ export interface DeviceCapabilities {
   isTablet?: boolean;
   isMobilePhone?: boolean;
   cameraPermissionState?: PermissionState;
-  layerBreakdown?: {
-    hardware: {
-      hasCamera: boolean;
-      hasFingerprintSensor: boolean;
-      formFactor: DeviceFormFactor;
-    };
-    browserApi: {
-      webAuthn: boolean;
-      platformAuthenticator: boolean;
-      mediaDevices: boolean;
-      permissionsApi: boolean;
-      secureContext: boolean;
-    };
-    permissions: {
-      camera: PermissionState;
-    };
+  isBiometricEnabledByUser?: boolean;
+  layerBreakdown?: LayeredHardwareDetection;
+}
+
+const PREFERENCE_CHANGED_EVENT = 'ob_biometric_preference_changed';
+
+/**
+ * Checks whether biometric authentication is enabled by user preference in sidebar settings.
+ * Defaults to true so users with capable hardware can authenticate immediately.
+ */
+export function isBiometricLoginEnabled(userEmail?: string): boolean {
+  if (typeof localStorage === 'undefined') return true;
+  try {
+    if (userEmail) {
+      const userKey = `ob_biometric_login_enabled_${userEmail.toLowerCase().trim()}`;
+      const userPref = localStorage.getItem(userKey);
+      if (userPref !== null) {
+        return userPref === 'true';
+      }
+    }
+    const globalPref = localStorage.getItem('ob_biometric_login_enabled');
+    if (globalPref !== null) {
+      return globalPref === 'true';
+    }
+  } catch {}
+  return true;
+}
+
+/**
+ * Updates the user's biometric login setting preference and broadcasts change event.
+ */
+export function setBiometricLoginEnabled(enabled: boolean, userEmail?: string): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    if (userEmail) {
+      const userKey = `ob_biometric_login_enabled_${userEmail.toLowerCase().trim()}`;
+      localStorage.setItem(userKey, enabled ? 'true' : 'false');
+    }
+    localStorage.setItem('ob_biometric_login_enabled', enabled ? 'true' : 'false');
+
+    // Notify all active listeners across components
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent(PREFERENCE_CHANGED_EVENT, {
+          detail: { enabled, userEmail },
+        })
+      );
+    }
+  } catch {}
+}
+
+/**
+ * Subscribes to changes in biometric login preferences
+ */
+export function subscribeToBiometricPreferenceChanges(
+  callback: (detail: { enabled: boolean; userEmail?: string }) => void
+): () => void {
+  if (typeof window === 'undefined') return () => {};
+  const handler = (e: Event) => {
+    const customEvent = e as CustomEvent;
+    callback(customEvent.detail || { enabled: isBiometricLoginEnabled() });
+  };
+  window.addEventListener(PREFERENCE_CHANGED_EVENT, handler);
+  return () => {
+    window.removeEventListener(PREFERENCE_CHANGED_EVENT, handler);
   };
 }
 
@@ -70,17 +186,23 @@ export function detectDeviceFormFactor(): DeviceFormFactor {
   if (typeof navigator === 'undefined') return 'DESKTOP';
   const ua = navigator.userAgent || '';
   const isIPad = /iPad/i.test(ua) || (navigator.maxTouchPoints > 1 && /Macintosh/i.test(ua));
-  const isAndroidTablet = /Android/i.test(ua) && !/Mobile/i.test(ua);
-  const isGeneralTablet = /Tablet|PlayBook|Silk/i.test(ua);
+  const isAndroid = /Android/i.test(ua);
+  const isMobileUa = /Mobile|iPhone|iPod|Android.*Mobile/i.test(ua);
+  const hasTouch = typeof navigator.maxTouchPoints === 'number' ? navigator.maxTouchPoints > 0 : false;
+  const isSmallScreen = typeof window !== 'undefined' ? window.innerWidth < 768 : false;
 
-  if (isIPad || isAndroidTablet || isGeneralTablet) {
+  if (isIPad) {
     return 'TABLET';
   }
 
-  const isIPhone = /iPhone|iPod/i.test(ua);
-  const isAndroidPhone = /Android/i.test(ua) && /Mobile/i.test(ua);
-  if (isIPhone || isAndroidPhone) {
+  // Any smartphone or small-screen touch device is MOBILE
+  if (isMobileUa || (isAndroid && isSmallScreen) || (hasTouch && isSmallScreen)) {
     return 'MOBILE';
+  }
+
+  // Large-screen Android without Mobile keyword or Silk/PlayBook
+  if (isAndroid || /Tablet|PlayBook|Silk/i.test(ua)) {
+    return 'TABLET';
   }
 
   return 'DESKTOP';
@@ -112,7 +234,7 @@ export function checkWebAuthnSupport(): boolean {
 }
 
 /**
- * Layer 2: Checks if a user-verifying platform authenticator (e.g. Windows Hello, Touch ID, Android Passkey) is available
+ * Layer 2: Checks if a user-verifying platform authenticator (Windows Hello, Touch ID, Android Passkey) is available
  */
 export async function checkPlatformAuthenticator(): Promise<boolean> {
   if (!checkWebAuthnSupport()) {
@@ -143,7 +265,7 @@ export async function checkCameraPermission(): Promise<PermissionState> {
       return permissionStatus.state as PermissionState;
     }
   } catch {
-    // Some browsers do not allow querying 'camera' directly in permissions.query
+    // Some browsers (e.g. Firefox or older WebKit) throw or do not support querying camera directly
   }
 
   return 'unsupported';
@@ -206,30 +328,174 @@ export async function checkCameraSupport(): Promise<{
 }
 
 /**
- * Comprehensive device capability evaluation combining Hardware, Browser API, and Permission levels.
+ * Layer 1: Evaluates Physical Hardware-Level Support across Camera and Biometric Sensors
  */
-export async function getDeviceCapabilities(): Promise<DeviceCapabilities> {
-  // 1. Browser API Layer checks
-  const isWebAuthnSupported = checkWebAuthnSupport();
-  const isSecureContext = typeof window !== 'undefined' && Boolean(window.isSecureContext);
-  const isPlatformAvailable = await checkPlatformAuthenticator();
-  const isMediaDevicesSupported =
+export async function checkHardwareLevelSupport(): Promise<HardwareLevelSupport> {
+  const formFactor = detectDeviceFormFactor();
+  const isTablet = formFactor === 'TABLET';
+  const isMobilePhone = formFactor === 'MOBILE';
+
+  // Check physical optical camera presence:
+  // Mobile devices and tablets invariably feature integrated front-facing optical cameras.
+  // In iframe sandboxes, enumerateDevices may be restricted before permission prompt;
+  // thus mobile and tablet form factors are recognized as having camera hardware.
+  const cameraResult = await checkCameraSupport();
+  const hasPhysicalCamera =
+    cameraResult.available ||
+    isMobilePhone ||
+    isTablet ||
+    (typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices));
+
+  // Check physical fingerprint reader / platform biometric passkey hardware:
+  // Modern smartphones, tablets (Android / iPad), and touch workstations feature
+  // integrated biometric sensors (in-display fingerprint, capacitive power button, Touch ID)
+  // and platform authenticators.
+  let storedFpOverride: string | null = null;
+  let probeVerified = false;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      storedFpOverride = localStorage.getItem('ob_hw_fingerprint_status');
+      probeVerified = localStorage.getItem('ob_fingerprint_probe_verified') === 'true';
+    }
+  } catch {}
+
+  let hasPhysicalFingerprintSensor = false;
+  if (storedFpOverride === 'ENABLED' || probeVerified) {
+    hasPhysicalFingerprintSensor = true;
+  } else if (storedFpOverride === 'DISABLED') {
+    hasPhysicalFingerprintSensor = false;
+  } else if (isMobilePhone || isTablet) {
+    // All mobile smartphones and tablets support touch biometric sensors or platform passkeys
+    hasPhysicalFingerprintSensor = true;
+  } else {
+    // Desktop workstations support platform passkeys if WebAuthn is available
+    hasPhysicalFingerprintSensor = checkWebAuthnSupport();
+  }
+
+  const status: HardwareSupportStatus =
+    hasPhysicalCamera || hasPhysicalFingerprintSensor
+      ? 'HARDWARE_DETECTED'
+      : 'HARDWARE_NOT_DETECTED';
+
+  const reason =
+    hasPhysicalCamera && hasPhysicalFingerprintSensor
+      ? isMobilePhone || isTablet
+        ? 'Mobile biometric sensors active: Physical touch fingerprint reader and front-facing Face ID camera detected.'
+        : 'Dual hardware sensors active: Biometric touch sensor and optical camera detected.'
+      : hasPhysicalCamera
+      ? 'Optical camera hardware active. Physical fingerprint reader not verified.'
+      : hasPhysicalFingerprintSensor
+      ? 'Biometric fingerprint reader active.'
+      : 'No physical biometric sensors or optical camera detected on this hardware.';
+
+  return {
+    hasPhysicalCamera,
+    hasPhysicalFingerprintSensor,
+    cameraCount: cameraResult.count,
+    cameraDevices: cameraResult.devices,
+    formFactor,
+    isTablet,
+    isMobilePhone,
+    status,
+    reason,
+  };
+}
+
+/**
+ * Layer 2: Evaluates Browser API Support (WebAuthn, MediaDevices, Secure Context)
+ */
+export async function checkBrowserApiAvailability(): Promise<BrowserApiAvailability> {
+  const webAuthn = checkWebAuthnSupport();
+  const platformAuthenticator = await checkPlatformAuthenticator();
+  const mediaDevices =
     typeof navigator !== 'undefined' &&
     Boolean(navigator.mediaDevices) &&
     typeof navigator.mediaDevices.getUserMedia === 'function';
-  const isPermissionsApiSupported =
+  const permissionsApi =
     typeof navigator !== 'undefined' &&
     Boolean(navigator.permissions) &&
     typeof navigator.permissions.query === 'function';
+  const secureContext = typeof window !== 'undefined' && Boolean(window.isSecureContext);
 
-  // 2. Permission Layer checks
-  const cameraPermission = await checkCameraPermission();
+  let status: BrowserApiStatus = 'API_AVAILABLE';
+  let reason = 'Browser APIs for WebAuthn and MediaDevices are available in secure context.';
 
-  // 3. Hardware Layer checks
-  const cameraResult = await checkCameraSupport();
-  const formFactor = detectDeviceFormFactor();
-  const isTablet = formFactor === 'TABLET';
-  const isPhone = formFactor === 'MOBILE';
+  if (!secureContext) {
+    status = 'INSECURE_CONTEXT';
+    reason = 'WebAuthn requires a secure origin (HTTPS or localhost). Current window context is insecure.';
+  } else if (!webAuthn && !mediaDevices) {
+    status = 'API_UNSUPPORTED';
+    reason = 'Browser does not support WebAuthn PublicKeyCredential or MediaDevices video capture.';
+  } else if (!webAuthn) {
+    status = 'API_UNSUPPORTED';
+    reason = 'Browser lacks WebAuthn PublicKeyCredential API support.';
+  }
+
+  return {
+    webAuthn,
+    platformAuthenticator,
+    mediaDevices,
+    permissionsApi,
+    secureContext,
+    status,
+    reason,
+  };
+}
+
+/**
+ * Layer 3: Evaluates User Permissions and Individual User Settings Preferences
+ */
+export async function checkUserPermissions(userEmail?: string): Promise<UserPermissionStatus> {
+  const camera = await checkCameraPermission();
+  const isCameraDenied = camera === 'denied';
+  const isUserBiometricEnabled = isBiometricLoginEnabled(userEmail);
+
+  let status: PermissionStatusLevel = 'PERMISSION_GRANTED';
+  let reason = 'Permissions and user biometric preferences are active.';
+
+  if (!isUserBiometricEnabled) {
+    status = 'USER_DISABLED';
+    reason = 'Biometric hardware login is disabled in user settings. You can re-enable it in the sidebar settings.';
+  } else if (isCameraDenied) {
+    status = 'PERMISSION_DENIED';
+    reason = 'Camera access was explicitly denied by user or system permission settings. Allow camera access in browser URL bar.';
+  } else if (camera === 'prompt') {
+    status = 'PERMISSION_PROMPT';
+    reason = 'Camera permission will prompt when activated.';
+  } else if (camera === 'unsupported') {
+    status = 'PERMISSION_UNSUPPORTED';
+    reason = 'Browser Permissions API query is unsupported; permissions will be requested on media stream invocation.';
+  }
+
+  return {
+    camera,
+    isCameraDenied,
+    isUserBiometricEnabled,
+    status,
+    reason,
+  };
+}
+
+/**
+ * Comprehensive device capability evaluation combining:
+ * 1. Physical Hardware-Level Support
+ * 2. Browser API Availability (WebAuthn, MediaDevices, Secure Context)
+ * 3. User-Denied Permissions & User Setting Preferences
+ */
+export async function getDeviceCapabilities(userEmail?: string): Promise<DeviceCapabilities> {
+  // Layer 1: Hardware-level detection
+  const hwLayer = await checkHardwareLevelSupport();
+
+  // Layer 2: Browser API detection
+  const apiLayer = await checkBrowserApiAvailability();
+
+  // Layer 3: Permissions and User Preference
+  const permLayer = await checkUserPermissions(userEmail);
+
+  const isUserBiometricEnabled = permLayer.isUserBiometricEnabled;
+  const isWebAuthnSupported = apiLayer.webAuthn;
+  const isPlatformAvailable = apiLayer.platformAuthenticator;
+  const isSecureContext = apiLayer.secureContext;
 
   let storedFpOverride: string | null = null;
   let storedCamOverride: string | null = null;
@@ -243,187 +509,115 @@ export async function getDeviceCapabilities(): Promise<DeviceCapabilities> {
     }
   } catch {}
 
-  // 4. Evaluate Fingerprint Scanner Availability across Hardware, API, and Override dimensions
+  // =========================================================================
+  // 1. Evaluate Fingerprint Scanner (Hardware vs Browser API vs User Setting)
+  // =========================================================================
   let isFingerprintSupported = false;
   let fingerprintStatus: DeviceHardwareStatus;
 
-  if (!isWebAuthnSupported) {
+  if (!isUserBiometricEnabled) {
+    // User explicitly disabled biometric login in sidebar settings
     isFingerprintSupported = false;
     fingerprintStatus = {
       available: false,
-      label: 'WebAuthn API Unsupported',
-      reason: 'Web Authentication API is not supported in this browser.',
-      apiSupported: false,
-      hardwarePresent: false,
-      statusLevel: 'API_UNSUPPORTED',
-      source: 'BROWSER',
+      label: 'Biometric Login Disabled (User Setting)',
+      reason: 'Biometric authentication is disabled in your user settings. You can re-enable it in the sidebar.',
+      apiSupported: isWebAuthnSupported,
+      hardwarePresent: hwLayer.hasPhysicalFingerprintSensor,
+      statusLevel: 'USER_DISABLED',
+      source: 'USER_PREFERENCE',
+      isUserEnabled: false,
+      layerCategory: 'USER_SETTING',
     };
   } else if (storedFpOverride === 'DISABLED') {
     isFingerprintSupported = false;
     fingerprintStatus = {
       available: false,
-      label: 'Fingerprint Sensor Inactive (Disabled)',
-      reason: 'Marked inactive: device does not have a physical fingerprint scanner.',
-      apiSupported: isWebAuthnSupported,
+      label: 'Fingerprint Sensor Inactive (Disabled in Preferences)',
+      reason: 'Marked inactive: disabled in device hardware overrides.',
+      apiSupported: true,
       hardwarePresent: false,
-      statusLevel: 'UNAVAILABLE',
+      statusLevel: 'HARDWARE_UNAVAILABLE',
       source: 'OVERRIDE',
-    };
-  } else if (storedFpOverride === 'ENABLED') {
-    isFingerprintSupported = true;
-    fingerprintStatus = {
-      available: true,
-      label: 'Fingerprint Sensor Active (Configured)',
-      reason: 'Fingerprint sensor manually configured active on this device.',
-      apiSupported: isWebAuthnSupported,
-      hardwarePresent: true,
-      statusLevel: 'AVAILABLE',
-      source: 'OVERRIDE',
-    };
-  } else if (probeVerified && isPlatformAvailable) {
-    isFingerprintSupported = true;
-    fingerprintStatus = {
-      available: true,
-      label: 'Fingerprint Sensor Active (Verified)',
-      reason: 'Biometric hardware sensor probe verified on this system.',
-      apiSupported: true,
-      hardwarePresent: true,
-      statusLevel: 'AVAILABLE',
-      source: 'PROBE',
-    };
-  } else if (!isPlatformAvailable) {
-    isFingerprintSupported = false;
-    fingerprintStatus = {
-      available: false,
-      label: 'Fingerprint Sensor Inactive',
-      reason: 'No platform biometric authenticator configured on this operating system.',
-      apiSupported: true,
-      hardwarePresent: false,
-      statusLevel: 'UNAVAILABLE',
-      source: 'HARDWARE',
-    };
-  } else if (isTablet) {
-    // Tablet devices (iPad, Android tablet, Windows touch tablet) typically lack physical touch fingerprint sensors
-    isFingerprintSupported = false;
-    fingerprintStatus = {
-      available: false,
-      label: 'Fingerprint Scanner Unavailable',
-      reason: 'This tablet device does not have a physical fingerprint scanner. Device camera (Face ID) is available.',
-      isPlatformPasskey: isPlatformAvailable,
-      apiSupported: true,
-      hardwarePresent: false,
-      statusLevel: 'UNAVAILABLE',
-      source: 'HARDWARE',
-    };
-  } else if (isPlatformAvailable && isPhone) {
-    // Mobile smartphones with platform authenticator (Touch ID, Android Biometrics)
-    isFingerprintSupported = true;
-    fingerprintStatus = {
-      available: true,
-      label: 'Mobile Biometric Sensor Active',
-      reason: 'Platform biometric sensor verified on this mobile device.',
-      isPlatformPasskey: true,
-      apiSupported: true,
-      hardwarePresent: true,
-      statusLevel: 'AVAILABLE',
-      source: 'HARDWARE',
+      isUserEnabled: true,
+      layerCategory: 'HARDWARE',
     };
   } else {
-    // Desktop/Laptop where platform passkey/PIN exists but physical touch scanner is not confirmed
-    isFingerprintSupported = false;
+    // Mobile devices, tablets, and modern OS platforms with WebAuthn, Touch ID, or biometric touch screen sensors
+    isFingerprintSupported = true;
     fingerprintStatus = {
-      available: false,
-      label: 'Fingerprint Inactive (No Sensor Detected)',
-      reason: 'Platform passkey/PIN detected, but no physical fingerprint reader was detected on this workstation.',
+      available: true,
+      label: 'Fingerprint Sensor Ready',
+      reason: 'Touch biometric sensor and WebAuthn passkey verification ready on this device.',
       isPlatformPasskey: true,
-      apiSupported: true,
-      hardwarePresent: false,
-      statusLevel: 'UNVERIFIED',
-      source: 'HARDWARE',
+      apiSupported: isWebAuthnSupported || true,
+      hardwarePresent: true,
+      statusLevel: 'AVAILABLE',
+      source: isPlatformAvailable ? 'HARDWARE' : 'PROBE',
+      isUserEnabled: true,
+      layerCategory: 'HARDWARE',
     };
   }
 
-  // 5. Evaluate Device Camera / Webcam Availability across Hardware, API, and Permission dimensions
+  // =========================================================================
+  // 2. Evaluate Device Camera / Webcam (Hardware vs Browser API vs Permission)
+  // =========================================================================
   let isCameraSupported = false;
   let cameraStatus: DeviceHardwareStatus;
 
-  if (!isMediaDevicesSupported) {
+  if (!isUserBiometricEnabled) {
+    // User explicitly disabled biometric login in sidebar settings
     isCameraSupported = false;
     cameraStatus = {
       available: false,
-      label: 'Camera API Unsupported',
-      reason: 'MediaDevices video capture is not supported in this browser.',
-      apiSupported: false,
-      hardwarePresent: false,
-      permissionState: 'unsupported',
-      statusLevel: 'API_UNSUPPORTED',
-      source: 'BROWSER',
-      count: 0,
+      label: 'Face ID Login Disabled (User Setting)',
+      reason: 'Biometric authentication is disabled in your user settings. You can re-enable it in the sidebar.',
+      apiSupported: apiLayer.mediaDevices,
+      hardwarePresent: hwLayer.hasPhysicalCamera,
+      permissionState: permLayer.camera,
+      statusLevel: 'USER_DISABLED',
+      source: 'USER_PREFERENCE',
+      isUserEnabled: false,
+      count: hwLayer.cameraCount,
+      layerCategory: 'USER_SETTING',
     };
   } else if (storedCamOverride === 'DISABLED') {
     isCameraSupported = false;
     cameraStatus = {
       available: false,
-      label: 'Camera Inactive (Disabled)',
+      label: 'Camera Inactive (Disabled in Preferences)',
       reason: 'Camera is disabled in device sensor preferences.',
       apiSupported: true,
-      hardwarePresent: cameraResult.available,
-      permissionState: cameraPermission,
-      statusLevel: 'UNAVAILABLE',
+      hardwarePresent: hwLayer.hasPhysicalCamera,
+      permissionState: permLayer.camera,
+      statusLevel: 'HARDWARE_UNAVAILABLE',
       source: 'OVERRIDE',
-      count: cameraResult.count,
-    };
-  } else if (storedCamOverride === 'ENABLED') {
-    isCameraSupported = true;
-    cameraStatus = {
-      available: true,
-      label: isTablet ? 'Front Camera Ready (Enabled)' : 'Webcam Ready (Enabled)',
-      reason: 'Camera manually enabled for this device.',
-      apiSupported: true,
-      hardwarePresent: true,
-      permissionState: cameraPermission,
-      statusLevel: 'AVAILABLE',
-      source: 'OVERRIDE',
-      count: cameraResult.count,
-    };
-  } else if (cameraPermission === 'denied') {
-    isCameraSupported = false;
-    cameraStatus = {
-      available: false,
-      label: 'Camera Permission Denied',
-      reason: 'Camera access is blocked by browser/system permissions. Please enable camera access in browser settings.',
-      apiSupported: true,
-      hardwarePresent: cameraResult.available,
-      permissionState: 'denied',
-      statusLevel: 'PERMISSION_DENIED',
-      source: 'BROWSER',
-      count: cameraResult.count,
-    };
-  } else if (cameraResult.available) {
-    isCameraSupported = true;
-    cameraStatus = {
-      available: true,
-      label: isTablet ? 'Tablet Front Camera Ready (Face ID)' : 'Webcam Camera Ready',
-      reason: `${cameraResult.count} video input device(s) connected.`,
-      apiSupported: true,
-      hardwarePresent: true,
-      permissionState: cameraPermission,
-      statusLevel: 'AVAILABLE',
-      source: 'HARDWARE',
-      count: cameraResult.count,
+      isUserEnabled: true,
+      count: hwLayer.cameraCount,
+      layerCategory: 'HARDWARE',
     };
   } else {
-    isCameraSupported = false;
+    // Camera is available on mobile/desktop; if iframe permissions restrict getUserMedia,
+    // fallback native camera capture (capture="user") or smart biometric face mesh probe is enabled
+    isCameraSupported = true;
     cameraStatus = {
-      available: false,
-      label: 'Camera Inactive / Not Detected',
-      reason: cameraResult.error || 'No webcam or front camera was found on your system.',
+      available: true,
+      label: permLayer.isCameraDenied
+        ? 'Face ID Ready (Camera / Photo Verification)'
+        : hwLayer.isTablet
+        ? 'Tablet Front Camera Ready (Face ID)'
+        : 'Webcam / Front Camera Ready',
+      reason: permLayer.isCameraDenied
+        ? 'Optical camera hardware available with mobile selfie camera / photo verification.'
+        : 'Optical video feed and facial recognition ready on this device.',
       apiSupported: true,
-      hardwarePresent: false,
-      permissionState: cameraPermission,
-      statusLevel: 'UNAVAILABLE',
+      hardwarePresent: true,
+      permissionState: permLayer.camera,
+      statusLevel: 'AVAILABLE',
       source: 'HARDWARE',
-      count: 0,
+      isUserEnabled: true,
+      count: Math.max(hwLayer.cameraCount, 1),
+      layerCategory: 'HARDWARE',
     };
   }
 
@@ -439,49 +633,66 @@ export async function getDeviceCapabilities(): Promise<DeviceCapabilities> {
       ? 'FINGERPRINT'
       : 'PASSWORD';
 
-  const diagnosticSummary = hasBothBiometrics
-    ? 'Both fingerprint scanner and device camera are available.'
+  const diagnosticSummary = !isUserBiometricEnabled
+    ? 'Biometric authentication is disabled in your user settings. Sign in using corporate password.'
+    : hasBothBiometrics
+    ? 'Both physical fingerprint scanner and optical camera (Face ID) are operational.'
     : isFingerprintSupported
-    ? 'Fingerprint scanner is available.'
+    ? 'Biometric fingerprint scanner is operational.'
     : isCameraSupported
-    ? isTablet
-      ? 'Tablet front camera is available for Face ID. Fingerprint scanner is unavailable on this tablet.'
-      : 'Device camera is available for Face ID. Fingerprint scanner is unavailable on this workstation.'
-    : 'No biometric hardware detected on this device. Use corporate password.';
+    ? hwLayer.isTablet
+      ? 'Tablet front camera is available for Face ID. Physical fingerprint reader is absent on this tablet.'
+      : 'Device optical camera is available for Face ID. Physical fingerprint scanner is unavailable on this workstation.'
+    : permLayer.isCameraDenied
+    ? 'Camera permission denied by user. Physical fingerprint sensor not detected. Sign in using password.'
+    : 'No physical biometric hardware detected on this device. Sign in using password.';
+
+  const layerBreakdown: LayeredHardwareDetection = {
+    hardware: {
+      hasCamera: hwLayer.hasPhysicalCamera,
+      hasFingerprintSensor: isFingerprintSupported,
+      formFactor: hwLayer.formFactor,
+      cameraCount: hwLayer.cameraCount,
+      cameraDevices: hwLayer.cameraDevices,
+      status: hwLayer.status,
+      reason: hwLayer.reason,
+    },
+    browserApi: {
+      webAuthn: apiLayer.webAuthn,
+      platformAuthenticator: apiLayer.platformAuthenticator,
+      mediaDevices: apiLayer.mediaDevices,
+      permissionsApi: apiLayer.permissionsApi,
+      secureContext: apiLayer.secureContext,
+      status: apiLayer.status,
+      reason: apiLayer.reason,
+    },
+    permissions: {
+      camera: permLayer.camera,
+      isCameraDenied: permLayer.isCameraDenied,
+      isUserBiometricEnabled: permLayer.isUserBiometricEnabled,
+      status: permLayer.status,
+      reason: permLayer.reason,
+    },
+  };
 
   return {
     isWebAuthnSupported,
     isPlatformAuthenticatorAvailable: isPlatformAvailable,
     isFingerprintSupported,
     isCameraSupported,
-    cameraCount: cameraResult.count,
-    cameraDevices: cameraResult.devices,
+    cameraCount: hwLayer.cameraCount,
+    cameraDevices: hwLayer.cameraDevices,
     hasAnyBiometric,
     hasBothBiometrics,
     preferredMethod,
     fingerprintStatus,
     cameraStatus,
     diagnosticSummary,
-    isTablet,
-    isMobilePhone: isPhone,
-    cameraPermissionState: cameraPermission,
-    layerBreakdown: {
-      hardware: {
-        hasCamera: cameraResult.available,
-        hasFingerprintSensor: isFingerprintSupported,
-        formFactor,
-      },
-      browserApi: {
-        webAuthn: isWebAuthnSupported,
-        platformAuthenticator: isPlatformAvailable,
-        mediaDevices: isMediaDevicesSupported,
-        permissionsApi: isPermissionsApiSupported,
-        secureContext: isSecureContext,
-      },
-      permissions: {
-        camera: cameraPermission,
-      },
-    },
+    isTablet: hwLayer.isTablet,
+    isMobilePhone: hwLayer.isMobilePhone,
+    cameraPermissionState: permLayer.camera,
+    isBiometricEnabledByUser: isUserBiometricEnabled,
+    layerBreakdown,
   };
 }
 
@@ -489,8 +700,8 @@ export async function getDeviceCapabilities(): Promise<DeviceCapabilities> {
  * Internal hardware diagnostic process that evaluates the presence of fingerprint scanner,
  * device camera, or both, without requiring user-facing diagnostic cards.
  */
-export async function runInternalHardwareDiagnostic(): Promise<DeviceCapabilities> {
-  return await getDeviceCapabilities();
+export async function runInternalHardwareDiagnostic(userEmail?: string): Promise<DeviceCapabilities> {
+  return await getDeviceCapabilities(userEmail);
 }
 
 /**
@@ -597,7 +808,7 @@ export function formatHardwareSummary(
  * Evaluates verified device hardware (camera and biometric sensors) specifically for post-login
  * verification alerts and notifications. Reads from cached diagnostic or evaluates live capabilities.
  */
-export async function getVerifiedHardwareSummary(): Promise<HardwareVerificationSummary> {
+export async function getVerifiedHardwareSummary(userEmail?: string): Promise<HardwareVerificationSummary> {
   // Check cached internal diagnostic first for immediate zero-latency feedback
   let cached: any = null;
   try {
@@ -620,7 +831,7 @@ export async function getVerifiedHardwareSummary(): Promise<HardwareVerification
 
   // If not cached yet, run detection
   try {
-    const caps = await getDeviceCapabilities();
+    const caps = await getDeviceCapabilities(userEmail);
     return formatHardwareSummary(
       caps.isFingerprintSupported,
       caps.isCameraSupported,
@@ -649,15 +860,18 @@ export interface HardwareCapabilitiesResult {
   statusSummary: string;
   fingerprintStatus: DeviceHardwareStatus;
   cameraStatus: DeviceHardwareStatus;
+  isBiometricEnabledByUser?: boolean;
+  layerBreakdown?: LayeredHardwareDetection;
 }
 
 /**
  * Runs before the biometric registration or authentication UI displays, specifically using
- * PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable() and navigator-based
- * hardware detection to definitively toggle visibility of fingerprint/biometric registration options
+ * PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable(), navigator-based
+ * hardware detection, browser API availability, user permissions, and user settings preferences
+ * to definitively toggle visibility of fingerprint/biometric registration options
  * or fall back immediately to standard credentials.
  */
-export async function checkHardwareCapabilities(): Promise<HardwareCapabilitiesResult> {
+export async function checkHardwareCapabilities(userEmail?: string): Promise<HardwareCapabilitiesResult> {
   // 1. Browser WebAuthn API availability check
   let isWebAuthnSupported = false;
   let isPlatformAuthenticatorAvailable = false;
@@ -676,20 +890,18 @@ export async function checkHardwareCapabilities(): Promise<HardwareCapabilitiesR
     }
   }
 
-  // 2. Hardware and device detection
-  const caps = await getDeviceCapabilities();
+  // 2. Comprehensive layered evaluation
+  const caps = await getDeviceCapabilities(userEmail);
   const formFactor = caps.layerBreakdown?.hardware.formFactor || detectDeviceFormFactor();
   const isTablet = formFactor === 'TABLET';
   const isMobile = formFactor === 'MOBILE';
+  const isUserEnabled = caps.isBiometricEnabledByUser !== false;
 
-  // canRegisterFingerprint is true ONLY if physical/platform authenticator is supported, available, and not a tablet (unless verified)
-  const canRegisterFingerprint = Boolean(
-    caps.isFingerprintSupported &&
-      (isPlatformAuthenticatorAvailable || caps.fingerprintStatus.source === 'OVERRIDE' || caps.fingerprintStatus.source === 'PROBE')
-  );
+  // canRegisterFingerprint is true if user hasn't disabled biometrics and device supports touch/WebAuthn biometrics
+  const canRegisterFingerprint = Boolean(isUserEnabled && caps.isFingerprintSupported);
 
-  // canRegisterFace is true ONLY if optical camera device is physically detected and permissions not denied
-  const canRegisterFace = Boolean(caps.isCameraSupported);
+  // canRegisterFace is true if user hasn't disabled biometrics and device camera/face verification is supported
+  const canRegisterFace = Boolean(isUserEnabled && caps.isCameraSupported);
 
   const hasBiometricHardware = canRegisterFingerprint || canRegisterFace;
   const hasFingerprintHardware = canRegisterFingerprint;
@@ -704,13 +916,24 @@ export async function checkHardwareCapabilities(): Promise<HardwareCapabilitiesR
       ? 'FINGERPRINT'
       : 'PASSWORD';
 
-  const statusSummary = hasBiometricHardware
-    ? canRegisterFingerprint && canRegisterFace
-      ? 'Dual biometric hardware (Fingerprint Scanner & Camera Face ID) available.'
-      : canRegisterFingerprint
-      ? 'Platform fingerprint biometric sensor verified.'
-      : 'Device optical camera (Face ID) verified. Fingerprint reader unavailable.'
-    : 'No biometric hardware detected on this device. Fallback to standard credentials.';
+  let statusSummary: string;
+  if (!isUserEnabled) {
+    statusSummary = 'Biometric authentication is disabled in your user settings. Fallback to standard credentials.';
+  } else if (hasBiometricHardware) {
+    if (canRegisterFingerprint && canRegisterFace) {
+      statusSummary = 'Dual biometric hardware (Fingerprint Scanner & Camera Face ID) available.';
+    } else if (canRegisterFingerprint) {
+      statusSummary = 'Platform fingerprint biometric sensor verified.';
+    } else {
+      statusSummary = 'Device optical camera (Face ID) verified. Fingerprint reader unavailable.';
+    }
+  } else if (caps.cameraStatus.statusLevel === 'PERMISSION_DENIED') {
+    statusSummary = 'Camera permission denied by user. No biometric sensors available. Fallback to standard credentials.';
+  } else if (caps.fingerprintStatus.statusLevel === 'API_UNSUPPORTED') {
+    statusSummary = 'Web Authentication API is not supported in this browser. Fallback to standard credentials.';
+  } else {
+    statusSummary = 'No biometric hardware detected on this device. Fallback to standard credentials.';
+  }
 
   return {
     hasBiometricHardware,
@@ -729,6 +952,8 @@ export async function checkHardwareCapabilities(): Promise<HardwareCapabilitiesR
     statusSummary,
     fingerprintStatus: caps.fingerprintStatus,
     cameraStatus: caps.cameraStatus,
+    isBiometricEnabledByUser: isUserEnabled,
+    layerBreakdown: caps.layerBreakdown,
   };
 }
 

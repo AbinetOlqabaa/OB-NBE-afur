@@ -39,7 +39,9 @@ export interface BiometricLogPayload {
     | 'BIOMETRIC_AUTH_TIMEOUT'
     | 'BIOMETRIC_LOGIN'
     | 'BIOMETRIC_ENROLLED'
-    | 'BIOMETRIC_PROBE';
+    | 'BIOMETRIC_PROBE'
+    | 'BIOMETRIC_PREFERENCE_ENABLED'
+    | 'BIOMETRIC_PREFERENCE_DISABLED';
   type?: 'FINGERPRINT' | 'FACE' | 'WEBAUTHN_PLATFORM';
   entityId?: string;
   details?: string;

@@ -39,6 +39,7 @@ import {
   subscribeToDeviceChanges,
 } from '../utils/deviceCapabilities.ts';
 import { BiometricPromptModal } from './BiometricPromptModal.tsx';
+import { BiometricRecoveryModal } from './BiometricRecoveryModal.tsx';
 import { HardwareDiagnosticsModal } from './HardwareDiagnosticsModal.tsx';
 import { BiometricStatusIndicator } from './BiometricStatusIndicator.tsx';
 import { vibrate, haptics } from '../utils/haptics.ts';
@@ -81,9 +82,12 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
   const [demoOtpCode, setDemoOtpCode] = useState<string>('123456');
   const [resendTimer, setResendTimer] = useState<number>(60);
 
-  // Biometric registration modal
+  // Biometric registration modal & recovery fallback
   const [isBiometricModalOpen, setIsBiometricModalOpen] = useState(false);
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
+  const [isRecoveryModalOpen, setIsRecoveryModalOpen] = useState(false);
+  const [recoveryFailedMethod, setRecoveryFailedMethod] = useState<'FINGERPRINT' | 'FACE'>('FINGERPRINT');
+  const [recoveryFailureReason, setRecoveryFailureReason] = useState<string>('');
 
   // Run hardware capability check before displaying biometric registration options
   useEffect(() => {
@@ -836,6 +840,26 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                       onOpenDiagnostics={() => setIsDiagnosticsOpen(true)}
                       showDiagnosticsButton={true}
                     />
+
+                    {/* Biometric Recovery Fallback Link */}
+                    <div className="flex items-center justify-end pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRecoveryFailedMethod(
+                            hardwareCapabilities.canRegisterFace && !hardwareCapabilities.canRegisterFingerprint
+                              ? 'FACE'
+                              : 'FINGERPRINT'
+                          );
+                          setRecoveryFailureReason('Manual biometric setup requested by user');
+                          setIsRecoveryModalOpen(true);
+                        }}
+                        className="text-[11px] font-semibold text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <ShieldAlert className="w-3.5 h-3.5" />
+                        <span>Biometric Recovery / Manual Setup</span>
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   /* Standard Credentials Fallback: All 'Register Fingerprint' prompts removed */
@@ -889,6 +913,30 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
             onSuccess={handleBiometricModalSuccess}
             onCancel={() => {
               setIsBiometricModalOpen(false);
+              setStep('SUCCESS');
+            }}
+            onTriggerRecovery={(failedMethod, reason) => {
+              setIsBiometricModalOpen(false);
+              setRecoveryFailedMethod(failedMethod);
+              setRecoveryFailureReason(reason || 'Biometric hardware test failed during registration');
+              setIsRecoveryModalOpen(true);
+            }}
+          />
+
+          {/* Biometric Recovery Fallback Modal */}
+          <BiometricRecoveryModal
+            isOpen={isRecoveryModalOpen}
+            userEmail={email}
+            userName={name || 'Bank Officer'}
+            userRole={role}
+            failedMethod={recoveryFailedMethod}
+            initialFailureReason={recoveryFailureReason}
+            onRecoverySuccess={(token, method) => {
+              setIsRecoveryModalOpen(false);
+              setStep('SUCCESS');
+            }}
+            onClose={() => {
+              setIsRecoveryModalOpen(false);
               setStep('SUCCESS');
             }}
           />

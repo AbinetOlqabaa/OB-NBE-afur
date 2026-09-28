@@ -31,6 +31,10 @@ import { useBiometricAuth } from '../hooks/useBiometricAuth.ts';
 import { BiometricPromptModal } from './BiometricPromptModal.tsx';
 import { ResetPasswordModal } from './ResetPasswordModal.tsx';
 import { triggerHaptic, vibrate } from '../utils/haptics.ts';
+import {
+  isBiometricLoginEnabled,
+  subscribeToBiometricPreferenceChanges,
+} from '../utils/deviceCapabilities.ts';
 
 interface LoginPageProps {
   onLoginSuccess: (user: UserSession, redirectTab?: string) => void;
@@ -51,6 +55,21 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [isBiometricModalOpen, setIsBiometricModalOpen] = useState(false);
   const [biometricModalMode, setBiometricModalMode] = useState<'REGISTER' | 'AUTHENTICATE'>('AUTHENTICATE');
   const [selectedBiometricMethod, setSelectedBiometricMethod] = useState<'FINGERPRINT' | 'FACE'>('FINGERPRINT');
+
+  // User Biometric Login Preference (individual setting per user)
+  const [isBioPrefEnabled, setIsBioPrefEnabled] = useState<boolean>(() => isBiometricLoginEnabled(email));
+
+  useEffect(() => {
+    setIsBioPrefEnabled(isBiometricLoginEnabled(email));
+  }, [email]);
+
+  useEffect(() => {
+    return subscribeToBiometricPreferenceChanges((detail) => {
+      if (!detail.userEmail || detail.userEmail.toLowerCase() === email.toLowerCase()) {
+        setIsBioPrefEnabled(detail.enabled);
+      }
+    });
+  }, [email]);
 
   const {
     isSupported: isWebAuthnSupported,
@@ -109,8 +128,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   // Active target user
   const currentTargetUser = userService.getByEmail(email) || userService.getAll()[0];
 
-  // Auto-prompt on first attempt or after password reset if device supports biometrics
+  // Auto-prompt on first attempt or after password reset if device supports biometrics and user has not disabled
   useEffect(() => {
+    if (!isBioPrefEnabled) return;
+
     // 1. Check if user just completed password reset
     const resetEmail = localStorage.getItem('ob_prompt_biometric_after_reset');
     if (resetEmail) {
@@ -133,7 +154,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       setSelectedBiometricMethod(isCameraSupported && !isFingerprintSupported ? 'FACE' : 'FINGERPRINT');
       setIsBiometricModalOpen(true);
     }
-  }, [hasAnyBiometric, hasBiometricRegistered, isCameraSupported, isFingerprintSupported]);
+  }, [hasAnyBiometric, hasBiometricRegistered, isCameraSupported, isFingerprintSupported, isBioPrefEnabled]);
 
   // Quick Preset Selector for 1-Click Testing
   const handleQuickPreset = (presetEmail: string) => {
@@ -145,6 +166,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   };
 
   const handleOpenBiometricModal = (mode: 'REGISTER' | 'AUTHENTICATE', method?: 'FINGERPRINT' | 'FACE') => {
+    if (!isBioPrefEnabled && mode === 'AUTHENTICATE') {
+      setBiometricNotice(
+        'Biometric hardware authentication is currently turned OFF for this user account in Sidebar settings. Please sign in with your password, or re-enable it in the Sidebar settings.'
+      );
+      vibrate(25);
+      return;
+    }
+
     setBiometricModalMode(mode);
     if (method) {
       setSelectedBiometricMethod(method);
@@ -162,36 +191,34 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   ) => {
     setIsBiometricModalOpen(false);
 
-    if (biometricModalMode === 'REGISTER') {
-      const targetUser = userService.getByEmail(email) || userService.getAll()[0];
-      if (targetUser) {
-        saveLocalCredential(
-          {
-            id: targetUser.id,
-            email: targetUser.email,
-            name: targetUser.name,
-            role: targetUser.role,
-            department: targetUser.department,
-            employeeId: targetUser.employeeId,
-          },
-          undefined,
-          method,
-          faceData?.faceHash
-        );
-        triggerHaptic('success');
-        setBiometricNotice(
-          `${method === 'FACE' ? 'Face ID (Camera)' : 'Biometric fingerprint'} passkey registered for ${targetUser.name} (${targetUser.role})! You can now sign in with one touch.`
-        );
-      }
-    } else {
-      // Authenticate
-      const result = await login(email, method, faceData);
-      if (result.success && result.user) {
-        triggerHaptic('success');
-        onLoginSuccess(result.user, result.redirectTab);
-      } else if (result.error) {
-        setErrorMessage(result.error);
-      }
+    const targetUser = userService.getByEmail(email) || userService.getAll()[0];
+    if (biometricModalMode === 'REGISTER' && targetUser) {
+      saveLocalCredential(
+        {
+          id: targetUser.id,
+          email: targetUser.email,
+          name: targetUser.name,
+          role: targetUser.role,
+          department: targetUser.department,
+          employeeId: targetUser.employeeId,
+        },
+        undefined,
+        method,
+        faceData?.faceHash
+      );
+      triggerHaptic('success');
+      setBiometricNotice(
+        `${method === 'FACE' ? 'Face ID (Camera)' : 'Biometric fingerprint'} passkey registered for ${targetUser.name} (${targetUser.role})!`
+      );
+    }
+
+    // Authenticate user session
+    const result = await login(email, method, faceData);
+    if (result.success && result.user) {
+      triggerHaptic('success');
+      onLoginSuccess(result.user, result.redirectTab);
+    } else if (result.error) {
+      setErrorMessage(result.error);
     }
   };
 
@@ -378,7 +405,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   <span className="text-xs font-bold text-slate-900 dark:text-white">
                     Biometric Sign-In & Passkeys
                   </span>
-                  {hasAnyBiometric && (
+                  {!isBioPrefEnabled ? (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                      Disabled in Settings
+                    </span>
+                  ) : hasAnyBiometric ? (
                     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/15 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
                       <span className="relative flex h-1.5 w-1.5">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-80"></span>
@@ -386,7 +417,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                       </span>
                       Hardware Ready
                     </span>
-                  )}
+                  ) : null}
                   {hasBiometricRegistered && (
                     <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
                       Enrolled
@@ -394,7 +425,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   )}
                 </div>
                 <span className="text-[10px] text-slate-500 dark:text-slate-400 block truncate">
-                  One-touch Sign-In with Fingerprint sensor or Face ID webcam
+                  {!isBioPrefEnabled
+                    ? 'Hardware authentication is disabled for this user in Sidebar settings'
+                    : 'One-touch Sign-In with Fingerprint sensor or Face ID webcam'}
                 </span>
               </div>
             </div>
