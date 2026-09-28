@@ -364,17 +364,29 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             </div>
           </div>
 
-          {/* Biometric Sign-in Section: Fingerprint & Face ID Buttons */}
-          <div className="bg-gradient-to-r from-emerald-950/20 via-teal-950/20 to-slate-900/20 border border-emerald-600/30 dark:border-emerald-500/30 rounded-xl p-3.5 space-y-3">
+          {/* Biometric Sign-in Section: Fingerprint & Face ID Buttons with Hardware Radar Ping */}
+          <div className="bg-gradient-to-r from-emerald-950/20 via-teal-950/20 to-slate-900/20 border border-emerald-600/30 dark:border-emerald-500/30 rounded-xl p-3.5 space-y-3 relative overflow-hidden">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-emerald-500/20 border border-emerald-400/40 text-emerald-700 dark:text-emerald-400">
-                <Fingerprint className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <div className="relative w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-emerald-500/20 border border-emerald-400/40 text-emerald-700 dark:text-emerald-400">
+                {hasAnyBiometric && (
+                  <span className="absolute -inset-1 rounded-lg bg-emerald-500/20 animate-bio-radar pointer-events-none" />
+                )}
+                <Fingerprint className="w-4 h-4 text-emerald-600 dark:text-emerald-400 relative z-10" />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="text-xs font-bold text-slate-900 dark:text-white">
                     Biometric Sign-In & Passkeys
                   </span>
+                  {hasAnyBiometric && (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/15 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                      <span className="relative flex h-1.5 w-1.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-80"></span>
+                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                      </span>
+                      Hardware Ready
+                    </span>
+                  )}
                   {hasBiometricRegistered && (
                     <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
                       Enrolled
@@ -387,27 +399,75 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </div>
             </div>
 
-            {/* Dedicated 2-Button Grid: Fingerprint & Face ID */}
+            {/* Dedicated 2-Button Grid: Fingerprint & Face ID with Hardware-Detected Radar Ping */}
             <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => handleOpenBiometricModal('AUTHENTICATE', 'FINGERPRINT')}
-                disabled={isBiometricScanning || loading}
-                className="min-h-[44px] py-2.5 px-2 font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white cursor-pointer touch-press"
-              >
-                <Fingerprint className="w-4 h-4 text-emerald-200" />
-                <span>Fingerprint</span>
-              </button>
+              {/* Fingerprint Button */}
+              <div className="relative group">
+                {isFingerprintSupported && (
+                  <span className="absolute -inset-0.5 rounded-xl bg-emerald-500/30 animate-button-radar pointer-events-none" />
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleOpenBiometricModal('AUTHENTICATE', 'FINGERPRINT')}
+                  disabled={isBiometricScanning || loading}
+                  className={`relative z-10 w-full min-h-[44px] py-2.5 px-2 font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white cursor-pointer touch-press overflow-hidden ${
+                    isFingerprintSupported ? 'ring-1 ring-emerald-300/60 animate-hardware-glow-emerald' : ''
+                  }`}
+                >
+                  {isFingerprintSupported && (
+                    <div className="absolute inset-0 pointer-events-none opacity-25 bg-gradient-to-r from-transparent via-white to-transparent animate-bio-shimmer" />
+                  )}
+                  <div className="relative flex items-center">
+                    <Fingerprint className="w-4 h-4 text-emerald-100 shrink-0" />
+                    {isFingerprintSupported && (
+                      <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-200 opacity-80"></span>
+                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-300"></span>
+                      </span>
+                    )}
+                  </div>
+                  <span>Fingerprint</span>
+                  {isFingerprintSupported && (
+                    <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-700/90 text-emerald-100 font-semibold uppercase tracking-wider">
+                      Ready
+                    </span>
+                  )}
+                </button>
+              </div>
 
-              <button
-                type="button"
-                onClick={() => handleOpenBiometricModal('AUTHENTICATE', 'FACE')}
-                disabled={isBiometricScanning || loading}
-                className="min-h-[44px] py-2.5 px-2 font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 bg-teal-600 hover:bg-teal-500 active:bg-teal-700 text-white cursor-pointer touch-press"
-              >
-                <ScanFace className="w-4 h-4 text-teal-200" />
-                <span>Face ID</span>
-              </button>
+              {/* Face ID Button */}
+              <div className="relative group">
+                {isCameraSupported && (
+                  <span className="absolute -inset-0.5 rounded-xl bg-teal-500/30 animate-button-radar pointer-events-none" />
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleOpenBiometricModal('AUTHENTICATE', 'FACE')}
+                  disabled={isBiometricScanning || loading}
+                  className={`relative z-10 w-full min-h-[44px] py-2.5 px-2 font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 bg-teal-600 hover:bg-teal-500 active:bg-teal-700 text-white cursor-pointer touch-press overflow-hidden ${
+                    isCameraSupported ? 'ring-1 ring-teal-300/60 animate-hardware-glow-teal' : ''
+                  }`}
+                >
+                  {isCameraSupported && (
+                    <div className="absolute inset-0 pointer-events-none opacity-25 bg-gradient-to-r from-transparent via-white to-transparent animate-bio-shimmer" />
+                  )}
+                  <div className="relative flex items-center">
+                    <ScanFace className="w-4 h-4 text-teal-100 shrink-0" />
+                    {isCameraSupported && (
+                      <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-200 opacity-80"></span>
+                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-teal-300"></span>
+                      </span>
+                    )}
+                  </div>
+                  <span>Face ID</span>
+                  {isCameraSupported && (
+                    <span className="text-[9px] px-1 py-0.2 rounded bg-teal-700/90 text-teal-100 font-semibold uppercase tracking-wider">
+                      Ready
+                    </span>
+                  )}
+                </button>
+              </div>
             </div>
 
             {/* Enrollment & Reset Buttons */}
