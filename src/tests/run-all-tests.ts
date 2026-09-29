@@ -339,6 +339,10 @@ import { runPhase2SsotTests } from './phase2-ssot.test.ts';
 import { runBiometricAndAccessoryTests } from './biometric-and-accessory.test.ts';
 import { runPdfAndSnapshotTests } from './pdf-and-snapshot.test.ts';
 import { runIndexedDbOfflineStorageTests } from './indexeddb-offline-storage.test.ts';
+import { runResponsiveUiAndLayoutTests } from './responsive-ui-and-layout.test.ts';
+import { runAuditorWorkflowTests } from './auditor-workflow.test.ts';
+import { runDesignSystemColorsTests } from './design-system-and-colors.test.ts';
+import { runPaginationSuiteTests } from './pagination-suite.test.ts';
 
 async function runFullApplicationTestSuite() {
   runRegulatoryCoreTests();
@@ -348,6 +352,10 @@ async function runFullApplicationTestSuite() {
   await runBiometricAndAccessoryTests();
   await runPdfAndSnapshotTests();
   await runIndexedDbOfflineStorageTests();
+  await runResponsiveUiAndLayoutTests();
+  await runAuditorWorkflowTests();
+  await runDesignSystemColorsTests();
+  await runPaginationSuiteTests();
 
   console.log('\n========================================================================');
   console.log('✅ ALL COMPREHENSIVE AUTOMATED TEST SUITES PASSED CLEANLY (100% SUCCESS)');
