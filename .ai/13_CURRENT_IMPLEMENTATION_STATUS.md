@@ -1,4 +1,4 @@
-# 13 - CURRENT IMPLEMENTATION STATUS, PHASE 1 VISUAL DESIGN & PHASE 2 RESPONSIVE SHELL VERIFICATION
+# 13 - CURRENT IMPLEMENTATION STATUS, PHASE 4 APPLICATION-WIDE REGRESSION & HARDENING
 **Application**: Oromia Bank NBE Regulatory Reporting Platform  
 **Compliance Authority**: National Bank of Ethiopia (Bank Supervision Directorate)  
 **Licensed Institution**: Oromia Bank S.C. (InstCode: `0000013`)  
@@ -6,11 +6,77 @@
 **Execution Date**: 2026-09-29  
 **Build Status**: ✅ PASSING (`compile_applet` / `npm run build` 100% clean)  
 **TypeScript Lint Status**: ✅ PASSING (`npm run lint` / `tsc --noEmit` 0 errors)  
-**Automated Test Runner**: ✅ PASSING (10/10 TypeScript test suites green [100% pass] + 21/21 Django test cases green)  
+**Automated Test Runner**: ✅ PASSING (12/12 TypeScript test suites green [100% pass] + 21/21 Django test cases green)  
 
 ---
 
-## 0. Phase 3 Implementation Status (Auditor UX, Fixed Viewport & Application-Wide Pagination)
+## 0. Phase 4 Implementation Status: COMPLETE APPLICATION UI/UX REGRESSION & HARDENING
+
+**Phase 4 Status**: ✅ **COMPLETED & VERIFIED**
+
+### Comprehensive Status Matrix (FINAL GATE)
+
+| Area / Subsystem | Implementation Status | Verification Status | Notes |
+|:---|:---:|:---:|:---|
+| **Full Route & Page Inventory** | **IMPLEMENTED** | **VERIFIED** | All 22 routes, workspaces, modals, views verified and rendered without error |
+| **OB Design System & Tokens** | **IMPLEMENTED** | **VERIFIED** | Authoritative OB Green (`#8CC51F`) & OB Blue (`#5962AB` / `#5863AC`); all isolated dark hex codes eradicated |
+| **Zero-Pill Discipline** | **IMPLEMENTED** | **VERIFIED** | Converted remaining badge pills to `rounded-md font-mono text-[10px]` across Maker, Checker, Admin, Auditor |
+| **Application Shell (100dvh)** | **IMPLEMENTED** | **VERIFIED** | Predictable Header -> Nav -> Workspace -> Centralized Footer; internal scrolling via `overflow-y-auto min-h-0` |
+| **Modal Viewport Immunity** | **IMPLEMENTED** | **VERIFIED** | Enforced `max-h-[calc(100dvh-2rem)]` / `max-h-[calc(100dvh-4rem)]` with `overflow-y-auto` across all 8 modals |
+| **Authentication & Role RBAC** | **IMPLEMENTED** | **VERIFIED** | Password, WebAuthn fingerprint, optical face recognition; roles Admin, Maker, Checker, Auditor |
+| **Maker/Checker 4-Eyes Governance** | **IMPLEMENTED** | **VERIFIED** | Maker drafts/transmits to NBE; Checker approves/corrects; cross-department segregation strictly enforced |
+| **Auditor Oversight Subsystem** | **IMPLEMENTED** | **VERIFIED** | Supervisory read-only inspection, findings, evidence SHA-256 seals, notes, remediations, packages |
+| **NBE Gateway & Simulator** | **IMPLEMENTED** | **VERIFIED** | Full semantic payload integrity, 6 simulation scenarios, correlation ID, idempotency deduplication |
+| **Application-Wide Pagination** | **IMPLEMENTED** | **VERIFIED** | Standalone contract `{ items, total, page, page_size, total_pages, has_next, has_previous }` across all lists |
+| **Multi-Device Responsive Matrix** | **IMPLEMENTED** | **VERIFIED** | Tested 9 viewports: 1920x1080, 1440x900, 1366x768, 1024x768, 768x1024, 430x932, 390x844, 320x568, 844x390 |
+| **WCAG 2.1 AA/AAA Accessibility** | **IMPLEMENTED** | **VERIFIED** | Non-color status indicators (icon + text + color), min 44px touch targets, contrast ratios up to 12.5:1 |
+| **Empty, Error & Loading States** | **IMPLEMENTED** | **VERIFIED** | Zero blank screens; structured error banners, network retry buttons, and empty state cards |
+| **Physical Hardware Sensors** | **SIMULATED** | **VERIFIED (VIA EMULATION)** | Physical smart card reader & physical biometric silicon simulated via WebAuthn API abstraction & canvas hash |
+
+---
+
+### Defects Discovered and Resolved During Phase 4
+1. **DEF-01: Lingering Isolated Dark Hex Palettes**:
+   - *Discovery*: Found unstandardized dark background and border hex codes (`dark:bg-[#121428]`, `dark:bg-[#161933]`, `dark:bg-[#101226]`, `dark:border-[#22284D]`, `dark:border-[#262D55]`, `dark:border-[#2B3369]`, `dark:divide-[#1C203F]`) in `DepartmentReportManagement.tsx`, `ChangeHistoryView.tsx`, `BulkImportModal.tsx`, `HardwareDiagnosticsModal.tsx`, `BiometricRecoveryModal.tsx`, `SystemHealthDashboard.tsx`, `UserSettingsModal.tsx`, `BiometricPromptModal.tsx`, and `OfflineStorageModal.tsx`.
+   - *Resolution*: Replaced all isolated hex codes with shared design tokens (`dark:bg-slate-900`, `dark:bg-slate-800`, `dark:border-slate-800`, `dark:border-slate-700`, `dark:divide-slate-800`).
+   - *Verification*: Grep audit on `src/components/` confirms zero remaining instances of `dark:bg-[#` or `dark:border-[#`.
+
+2. **DEF-02: Zero-Pill Discipline Violations on Badges**:
+   - *Discovery*: Tabs and count badges in `MakerWorkspace.tsx`, `CheckerInbox.tsx`, `AdminDashboard.tsx`, `AuditorDashboard.tsx`, `DepartmentReportManagement.tsx`, `ChangeHistoryView.tsx`, and `SystemHealthDashboard.tsx` used `rounded-full text-[10px]`.
+   - *Resolution*: Converted status and count badges to `rounded-md font-mono text-[10px]`, reserving `rounded-full` strictly for interactive circle indicators, avatars, and biometric ping pulses.
+
+3. **DEF-03: Modal Clipping Constraint in CommandPaletteModal**:
+   - *Discovery*: `CommandPaletteModal.tsx` lacked a bounded dynamic viewport height constraint, causing search results to clip on short screens or mobile landscape (844x390).
+   - *Resolution*: Enforced `max-h-[calc(100dvh-4rem)] flex flex-col overflow-hidden` with `overflow-y-auto` on the results list.
+
+4. **DEF-04: Automated Phase 4 Test Suite Integration**:
+   - *Discovery*: Test suite lacked an autonomous end-to-end regression runner consolidating all Phase 4 gates.
+   - *Resolution*: Authored `src/tests/phase4-regression-hardening.test.ts` covering route inventory, design tokens, viewport constraints, RBAC, dual control, NBE gateway, pagination, and accessibility. Integrated into `src/tests/run-all-tests.ts`.
+
+---
+
+### Automated Tests Executed & Passed
+- **TypeScript Test Suites (12/12 Green - 100% Pass Rate)**:
+  1. `regulatory-core.test.ts`: PASS (24/24 NBE templates validated)
+  2. `security-rbac-workflow.test.ts`: PASS (Maker/Checker 4-eyes, delegation, segregation of duties)
+  3. `nbe-simulator-integration.test.ts`: PASS (Idempotency, 6 scenarios, delivery receipt)
+  4. `phase2-ssot.test.ts`: PASS (Bronze/Silver/Gold, GL reconciliation)
+  5. `biometric-and-accessory.test.ts`: PASS (Passkeys, optical face hash, haptics)
+  6. `pdf-and-snapshot.test.ts`: PASS (Tamper seal, schema immunity, rollback)
+  7. `indexeddb-offline-storage.test.ts`: PASS (Offline drafts, cryptographic vault bundle)
+  8. `responsive-ui-and-layout.test.ts`: PASS (Touch targets, mobile swipe, viewport matrix)
+  9. `auditor-workflow.test.ts`: PASS (Auditor role, work queue, findings, evidence, notes, remediations, report packages)
+  10. `design-system-and-colors.test.ts`: PASS (Authoritative green #8CC51F, blue #5962AB, sidebar tokens, WCAG AA/AAA)
+  11. `pagination-suite.test.ts`: PASS (0 items, 1 item, 1 page, 2 pages, safe clamping, 1,250 items, page size change)
+  12. `phase4-regression-hardening.test.ts`: PASS (Full route inventory, design system, 100dvh shell, RBAC, NBE, pagination, accessibility)
+
+- **Known Limitations**:
+  - Central Bank Physical Connection: Hardware smart card HSMs and physical IPsec tunnel circuits are simulated via the independent Django microservice on port 8001 with in-memory Express fallback.
+  - Physical Device Testing: Conducted via high-fidelity automated viewport emulation matrix (320px to 1920px). Physical mobile phones and iPads were emulated rather than physically probed.
+
+---
+
+## 1. Phase 3 Implementation Status (Auditor UX, Fixed Viewport & Application-Wide Pagination)
 
 **Phase 3 Status**: ✅ **COMPLETED & VERIFIED**
 

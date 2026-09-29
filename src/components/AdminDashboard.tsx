@@ -466,7 +466,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="space-y-0.5">
             <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-ob-indigo-500 text-white uppercase tracking-wider">
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-ob-indigo-500 text-white uppercase tracking-wider">
                 System Administrator
               </span>
               <span className="text-xs text-ob-indigo-200 font-mono">

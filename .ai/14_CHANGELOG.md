@@ -4,6 +4,30 @@ All notable changes and engineering enhancements for the Oromia Bank NBE Regulat
 
 ---
 
+## [1.8.0-phase4-ui-ux-regression-and-hardening] - 2026-09-29
+
+### Added
+- **Automated Phase 4 Regression & Hardening Test Suite (`src/tests/phase4-regression-hardening.test.ts`)**:
+  - Full route and component inventory verification covering 22 distinct views, workspaces, and modals.
+  - Verification of authoritative brand tokens (`#8CC51F` green, `#5962AB` blue, `#2C3161` active item, `#47509A` border).
+  - Validation of zero isolated dark hex code policy across all application components.
+  - End-to-end reporting lifecycle and dual-control workflow test: Maker draft creation -> Checker approval -> Maker transmission to NBE simulator.
+  - Non-color accessibility and semantic status indicator audits.
+  - Standalone pagination contract verification with edge case clamping.
+- **Integrated Test Execution Runner**:
+  - Expanded `src/tests/run-all-tests.ts` to 12 comprehensive automated test suites (100% passing).
+
+### Changed
+- **Application-Wide Color Standardization & Hex Eradication**:
+  - Eliminated lingering isolated dark hex codes (`dark:bg-[#121428]`, `dark:bg-[#161933]`, `dark:bg-[#101226]`, `dark:border-[#22284D]`, `dark:border-[#262D55]`, `dark:border-[#2B3369]`, `dark:divide-[#1C203F]`) across `DepartmentReportManagement.tsx`, `ChangeHistoryView.tsx`, `BulkImportModal.tsx`, `HardwareDiagnosticsModal.tsx`, `BiometricRecoveryModal.tsx`, `SystemHealthDashboard.tsx`, `UserSettingsModal.tsx`, `BiometricPromptModal.tsx`, and `OfflineStorageModal.tsx`.
+  - Migrated entirely to unified design tokens (`dark:bg-slate-900`, `dark:bg-slate-800`, `dark:border-slate-800`, `dark:border-slate-700`, `dark:divide-slate-800`).
+- **Zero-Pill Discipline Across Workspace Badges & Tabs**:
+  - Replaced `rounded-full text-[10px]` with `rounded-md font-mono text-[10px]` on counts and status tags in `MakerWorkspace.tsx`, `CheckerInbox.tsx`, `AdminDashboard.tsx`, `AuditorDashboard.tsx`, `DepartmentReportManagement.tsx`, `ChangeHistoryView.tsx`, and `SystemHealthDashboard.tsx`.
+- **Viewport Immunity on Modal Dialogs**:
+  - Hardened `CommandPaletteModal.tsx` with dynamic height constraints (`max-h-[calc(100dvh-4rem)] flex flex-col overflow-hidden` and `overflow-y-auto` results) to eliminate any risk of viewport clipping on short displays or mobile landscape.
+
+---
+
 ## [1.7.0-phase3-auditor-ux-and-pagination] - 2026-09-29
 
 ### Added

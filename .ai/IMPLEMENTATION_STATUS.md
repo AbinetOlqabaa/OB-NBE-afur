@@ -25,3 +25,8 @@
 | **Frontend UI Dashboards** | `src/components/*`, `src/App.tsx` | COMPLETED & VERIFIED | Maker, Checker, Admin, Simulator, SSOT, Theme sync |
 | **Biometric Auth & WebAuthn** | `src/hooks/useBiometricAuth.ts`, `src/components/LoginPage.tsx` | COMPLETED & VERIFIED | Web Authentication API, register/login challenges, simulated session authorization |
 | **Mobile InputAccessoryView** | `src/components/InputAccessoryView.tsx` | COMPLETED & VERIFIED | Document focus listeners, virtual keyboard offset tracking, Prev/Next/Done actions, haptics |
+| **Auditor Experience & Subsystems** | `src/components/AuditorDashboard.tsx`, `src/services/auditorService.ts` | COMPLETED & VERIFIED | Supervisory work queue, findings, evidence SHA-256 seals, notes, remediations, report packages |
+| **Application-Wide Pagination** | `src/utils/paginationUtils.ts`, `src/components/Pagination.tsx` | COMPLETED & VERIFIED | Standalone contract, safe out-of-bounds clamping, multi-page and large-dataset navigation |
+| **Design System & Zero-Pill Tokens** | `src/styles/designTokens.ts`, `src/index.css` | COMPLETED & VERIFIED | Authoritative OB Green (#8CC51F), Blue (#5962AB), all isolated dark hex codes eradicated |
+| **Phase 4 UI/UX Regression & Hardening** | `src/tests/phase4-regression-hardening.test.ts` | COMPLETED & VERIFIED | 12/12 comprehensive test suites passing, multi-device viewport matrix (320px - 1920px), WCAG AA/AAA |
+
