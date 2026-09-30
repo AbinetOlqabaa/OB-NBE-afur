@@ -24,6 +24,8 @@ import { nbeAdapter } from './nbeAdapter.ts';
 import type { DeliveryResult } from './nbeAdapter.ts';
 import { auditService } from './auditService.ts';
 import { userService } from './userService.ts';
+import { departmentService } from './departmentService.ts';
+import { configService } from './configService.ts';
 import { indexedDbStorage } from './indexedDbStorage.ts';
 
 // Default Demo User Accounts with verified Oromia Bank departments
@@ -606,13 +608,15 @@ class SubmissionServiceClass {
 
     const templateSnapshot = this.createTemplateSnapshot(report);
     const structuralHash = this.generateStructuralHash(report);
+    const activeDef = configService.getReportDefinition(report.ReturnKey);
+    const activeTmplVersion = activeDef?.currentVersion || 1;
     const initialValuesCopy = JSON.parse(JSON.stringify(initialValues));
     const initialDynamicCopy = JSON.parse(JSON.stringify(initialDynamicRows));
     const integrityHash = this.computeIntegrityHash({
       id,
       reportKey: report.ReturnKey,
       version: 1,
-      templateVersion: 1,
+      templateVersion: activeTmplVersion,
       values: initialValuesCopy,
       status: 'DRAFT',
     });
@@ -620,7 +624,7 @@ class SubmissionServiceClass {
     const initialSnapshot: SubmissionSnapshot = {
       snapshotId: `snap_${id}_v1_${Date.now()}`,
       version: 1,
-      templateVersion: 1,
+      templateVersion: activeTmplVersion,
       dataVersion: 1,
       timestamp: now,
       status: 'DRAFT',
@@ -644,7 +648,7 @@ class SubmissionServiceClass {
       institutionCode: report.InstCode,
       status: 'DRAFT',
       version: 1,
-      templateVersion: 1,
+      templateVersion: activeTmplVersion,
       dataVersion: 1,
       templateSnapshot,
       dataSnapshot: initialValuesCopy,
@@ -1369,3 +1373,8 @@ class SubmissionServiceClass {
 }
 
 export const submissionService = new SubmissionServiceClass();
+userService.setSubmissionProvider(submissionService);
+departmentService.setSubmissionProvider(submissionService);
+departmentService.setUserProvider(userService);
+configService.setSubmissionProvider(submissionService);
+configService.setUserProvider(userService);
