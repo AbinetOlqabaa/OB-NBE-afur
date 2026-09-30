@@ -4,6 +4,39 @@ All notable changes and engineering enhancements for the Oromia Bank NBE Regulat
 
 ---
 
+## [5.0.0-phase5-user-department-report-role-relationship-engine] - 2026-09-30
+
+### Added
+- **Authoritative Relationship & Effective-Access Engine (`src/services/effectiveAccessEngine.ts`, `.ai/05_USER_DEPARTMENT_REPORT_RELATIONSHIP_ENGINE.md`)**:
+  - Centralized, server-enforced relationship and access policy layer connecting `User ↔ Role ↔ Department ↔ Report ↔ Special Access ↔ Workflow State`.
+  - Authoritative effective-access derivation formula evaluating: Role, Account Status (`ACTIVE`, `PENDING_APPROVAL`, `DISABLED`, `SUSPENDED`), Department boundary, dynamic M:N linkages, Direct User-Report Assignments, Special Access Grants, Segregation of Duties (4-eyes dual control), and Temporal constraints.
+  - Role Separation Policy:
+    - **Maker**: Authorized report entry, draft editing, formula execution, submission to Checker, and final NBE transmission of approved returns. Blocked from review sign-off and administrative governance.
+    - **Checker**: Authorized 4-eyes review, correction requests, approvals, and rejections within department boundary. Prohibited from editing draft numbers, self-review, and final NBE delivery.
+    - **Auditor**: Authorized supervisory examination, finding creation, evidence attachment, and report package export across all 24 returns. Strictly prohibited from preparing drafts, editing figures, or approving returns.
+    - **Administrator**: Authorized user and department governance, special access delegation, SSOT configuration, and simulator control. Strictly restricted to read-only compliance oversight on report data; cannot mutate return figures or sign off.
+- **Direct User ↔ Report Assignments Without Code Modification**:
+  - Administrators can directly assign reports to individual officers via `effectiveAccessEngine.assignReportToUser(userId, reportKey, adminName)`.
+  - Immediate operational permission granted without code change or home department alteration.
+  - Revocation via `removeReportFromUser` immediately restores department boundary.
+- **Controlled Special Access Grants**:
+  - Full support for `REPORT`, `DEPARTMENT`, `MULTI_DEPARTMENT`, and `ALL_REPORTS` scopes.
+  - Mandatory compliance justification reason recorded on all grants.
+  - Future scheduling (`effectiveFrom`), time-bound expiration (`expiresAt`), administrative revocation (`revoked`, `revokedAt`, `revokedBy`), and non-repudiation audit trail.
+- **Sub-Millisecond Authorization Caching & Real-Time Invalidation**:
+  - Deterministic cache keyed by user identity, role, department, grants hash, report key, action, and submission state.
+  - Automated invalidation hooks tied to role changes, department changes/restructuring, assignment additions/removals, special access grants/revocations, and SSOT report retirement.
+- **Direct Server REST API Endpoints (`server.ts`)**:
+  - `POST /api/access/evaluate`: Central authoritative access evaluation for any operation.
+  - `GET /api/access/matrix/:userId`: Full 24-report effective permissions matrix for a user.
+  - `GET /api/access/user-assignments/:userId`, `POST /api/access/user-assignments`, `DELETE /api/access/user-assignments`: Direct user-report assignment management.
+  - `POST /api/access/cache/invalidate`: Explicit authorization cache purge.
+- **Comprehensive Automated Test Matrix (`src/tests/relationship-effective-access-engine.test.ts`)**:
+  - 10-part comprehensive verification covering: all 4 roles, same vs different departments, direct user-report assignments, special access scopes, expired grants, revoked grants, account statuses, retired reports, 4-eyes segregation of duties, and cache invalidation.
+  - Integrated into `src/tests/run-all-tests.ts` (17/17 test suites passing cleanly with 100% success).
+
+---
+
 ## [4.0.0-phase4-dynamic-report-definition-and-template-management] - 2026-09-30
 
 ### Added

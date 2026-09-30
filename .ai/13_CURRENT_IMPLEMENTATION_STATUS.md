@@ -1,4 +1,4 @@
-# 13 - CURRENT IMPLEMENTATION STATUS: PHASE 4 DYNAMIC REPORT DEFINITION & TEMPLATE MANAGEMENT
+# 13 - CURRENT IMPLEMENTATION STATUS: PHASE 5 USER / DEPARTMENT / REPORT / ROLE RELATIONSHIP ENGINE
 **Application**: Oromia Bank NBE Regulatory Reporting Platform  
 **Compliance Authority**: National Bank of Ethiopia (Bank Supervision Directorate)  
 **Licensed Institution**: Oromia Bank S.C. (InstCode: `0000013`)  
@@ -6,7 +6,7 @@
 **Execution Date**: 2026-09-30  
 **Build Status**: ✅ PASSING (`compile_applet` / `npm run build` 100% clean)  
 **TypeScript Lint Status**: ✅ PASSING (`npm run lint` / `tsc --noEmit` 0 errors)  
-**Automated Test Runner**: ✅ PASSING (16/16 comprehensive test suites green [100% pass], including `dynamic-report-definition.test.ts`)  
+**Automated Test Runner**: ✅ PASSING (17/17 comprehensive test suites green [100% pass], including `relationship-effective-access-engine.test.ts`)  
 
 ---
 
@@ -14,6 +14,7 @@
 
 | Module | Core Files | Status | Test Coverage |
 |---|---|---|---|
+| **Phase 5 User / Department / Report / Role Relationship Engine** | `src/services/effectiveAccessEngine.ts`, `src/services/submissionService.ts`, `src/services/userService.ts`, `server.ts`, `.ai/05_USER_DEPARTMENT_REPORT_RELATIONSHIP_ENGINE.md` | COMPLETED & VERIFIED | 100% pass (`relationship-effective-access-engine.test.ts`): Authoritative effective-access derivation formula, 4-role strict separation, department isolation, direct user assignments without code edits, controlled special access (scope, reason, expiration, revocation, audit trail), account status lifecycle (active, pending, disabled, suspended), retired report lifecycle, dual-control 4-eyes segregation, and sub-millisecond cache with real-time invalidation |
 | **Phase 4 Dynamic Report Definition & Template Management** | `src/services/configService.ts`, `src/components/ReportTemplateStudioModal.tsx`, `src/components/DepartmentReportManagement.tsx`, `src/data/report-registry.ts`, `server.ts` | COMPLETED & VERIFIED | 100% pass (`dynamic-report-definition.test.ts`): 10 test parts covering 24 NBE preservation, metadata creation, cycle detection DFS, preview, publish, version bump (V1->V2), immutability, dual-template reproducibility, Auditor inspection, NBE payload, safe retirement |
 | **Phase 3 Administrator Users & Departments** | `src/components/AdminDashboard.tsx`, `src/services/userService.ts`, `src/services/departmentService.ts`, `src/services/configService.ts`, `server.ts` | COMPLETED & VERIFIED | 100% pass (`phase3-admin-users-departments.test.ts`): User CRUD, roles, Auditor mandate, department hierarchy, historical safety |
 | **Report Assets & Catalog** | `data/report-definitions/*`, `src/data/report-registry.ts` | COMPLETED & VERIFIED | 24 reports validated with SHA256 hashes |

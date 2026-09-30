@@ -24,6 +24,7 @@ import {
 } from './src/data/organizationHierarchy.ts';
 import { paginateList, PaginatedResult } from './src/utils/paginationUtils.ts';
 import { configService } from './src/services/configService.ts';
+import { effectiveAccessEngine } from './src/services/effectiveAccessEngine.ts';
 
 dotenv.config();
 
@@ -841,6 +842,103 @@ app.get('/api/users/:id/authorized-reports', (req, res) => {
   }
   const authMatrix = configService.getAuthorizedReportsForUser(user);
   res.json(authMatrix);
+});
+
+// -------------------------------------------------------------
+// AUTHORITATIVE RELATIONSHIP & EFFECTIVE ACCESS ENGINE API (PHASE 5)
+// -------------------------------------------------------------
+
+// Authoritative access evaluation endpoint
+app.post('/api/access/evaluate', (req, res) => {
+  const { user, userId, reportKey, action, submissionId } = req.body;
+  const resolvedUser = user || (userId ? userService.getById(userId) : null) || DEMO_USERS[0];
+  const submission = submissionId ? submissionService.getById(submissionId) : req.body.submission || null;
+
+  if (!action) {
+    res.status(400).json({ allowed: false, reason: 'Action parameter is required.', code: 'INVALID_PARAMETER' });
+    return;
+  }
+
+  const result = effectiveAccessEngine.evaluateAccess(resolvedUser, reportKey, action, submission);
+  const httpStatus = result.allowed ? 200 : getAuthOrClientStatusCode(result.reason);
+  res.status(httpStatus).json(result);
+});
+
+// Comprehensive Effective Permissions Matrix across all 24 returns
+app.get('/api/access/matrix/:userId', (req, res) => {
+  const user = userService.getById(req.params.userId) || DEMO_USERS.find((u) => u.id === req.params.userId);
+  if (!user) {
+    res.status(404).json({ error: `User not found: ${req.params.userId}` });
+    return;
+  }
+  const matrix = effectiveAccessEngine.getEffectiveReportPermissionsMatrix(user);
+  res.json({
+    userId: user.id,
+    userName: user.name,
+    role: user.role,
+    department: user.department,
+    status: (user as any).status || 'ACTIVE',
+    matrix,
+  });
+});
+
+// Direct User-Report Assignments Management
+app.get('/api/access/user-assignments/:userId', (req, res) => {
+  const assignments = effectiveAccessEngine.getUserDirectReportAssignments(req.params.userId);
+  res.json({ userId: req.params.userId, reportKeys: assignments });
+});
+
+app.post('/api/access/user-assignments', (req, res) => {
+  const caller = req.body.user || (req.headers['x-user-role'] ? { role: req.headers['x-user-role'], name: req.headers['x-user-name'] } : null);
+  if (caller && caller.role !== 'ADMIN') {
+    res.status(403).json({ error: 'Only ADMIN role can assign reports directly to users.' });
+    return;
+  }
+  const { userId, reportKey, adminName } = req.body;
+  if (!userId || !reportKey) {
+    res.status(400).json({ error: 'userId and reportKey are required.' });
+    return;
+  }
+  const resolvedAdmin = adminName || caller?.name || 'Compliance Administrator';
+  effectiveAccessEngine.assignReportToUser(userId, reportKey, resolvedAdmin);
+  res.status(201).json({
+    success: true,
+    message: `Report ${reportKey} directly assigned to user ${userId}.`,
+    reportKeys: effectiveAccessEngine.getUserDirectReportAssignments(userId),
+  });
+});
+
+app.delete('/api/access/user-assignments', (req, res) => {
+  const caller = req.body?.user || (req.headers['x-user-role'] ? { role: req.headers['x-user-role'], name: req.headers['x-user-name'] } : null);
+  if (caller && caller.role !== 'ADMIN') {
+    res.status(403).json({ error: 'Only ADMIN role can remove direct report assignments.' });
+    return;
+  }
+  const userId = req.body?.userId || (req.query as any)?.userId;
+  const reportKey = req.body?.reportKey || (req.query as any)?.reportKey;
+  const adminName = req.body?.adminName || caller?.name || 'Compliance Administrator';
+
+  if (!userId || !reportKey) {
+    res.status(400).json({ error: 'userId and reportKey are required.' });
+    return;
+  }
+  const removed = effectiveAccessEngine.removeReportFromUser(userId, reportKey, adminName);
+  res.json({
+    success: removed,
+    message: removed ? `Report ${reportKey} unassigned from user ${userId}.` : 'Assignment not found.',
+    reportKeys: effectiveAccessEngine.getUserDirectReportAssignments(userId),
+  });
+});
+
+// Cache Invalidation Hook
+app.post('/api/access/cache/invalidate', (req, res) => {
+  const { userId, reason } = req.body;
+  if (userId) {
+    effectiveAccessEngine.invalidateUser(userId);
+  } else {
+    effectiveAccessEngine.invalidateAll(reason || 'Administrative manual cache purge');
+  }
+  res.json({ success: true, message: 'Authorization evaluation cache purged.' });
 });
 
 // Admin creates user account directly

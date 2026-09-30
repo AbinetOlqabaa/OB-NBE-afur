@@ -12,6 +12,7 @@ import {
 import { departmentService } from './departmentService.ts';
 import { getAllReports } from '../data/report-registry.ts';
 import { auditService } from './auditService.ts';
+import { effectiveAccessEngine } from './effectiveAccessEngine.ts';
 
 export type UserRole = 'ADMIN' | 'MAKER' | 'CHECKER' | 'AUDITOR';
 export type UserStatus = 'ACTIVE' | 'PENDING_APPROVAL' | 'DISABLED';
@@ -684,6 +685,7 @@ class UserServiceClass {
       user.approvedAt = new Date().toISOString();
       user.approvedBy = `${adminName} (ADMIN)`;
     }
+    effectiveAccessEngine.invalidateUser(userId);
 
     const { password, ...safe } = user;
     return { success: true, user: safe as UserAccount };
@@ -825,6 +827,7 @@ class UserServiceClass {
     }
 
     const { password, ...safe } = user;
+    effectiveAccessEngine.invalidateUser(user.id);
 
     auditService.log({
       actorId: 'usr_admin',
@@ -891,6 +894,7 @@ class UserServiceClass {
 
     const targetUser = this.users.get(userId);
     this.users.delete(userId);
+    effectiveAccessEngine.invalidateUser(userId);
 
     auditService.log({
       actorId: 'usr_admin',
@@ -1020,6 +1024,7 @@ class UserServiceClass {
     }
 
     user.specialAccessGrants.push(newGrant);
+    effectiveAccessEngine.onSpecialAccessChange(userId);
 
     const { password, ...safe } = user;
     const targetLabel = grantData.reportKey
@@ -1053,6 +1058,8 @@ class UserServiceClass {
       return { success: false, message: 'Grant ID not found on user.' };
     }
 
+    effectiveAccessEngine.onSpecialAccessChange(userId);
+
     const { password, ...safe } = user;
     return {
       success: true,
@@ -1063,175 +1070,39 @@ class UserServiceClass {
 
   /**
    * Evaluates the complete set of report keys that this user is authorized to access.
-   * - ADMIN: returns all registered reports
-   * - MAKER / CHECKER:
-   *     1. All reports belonging to or linked to their home department
-   *     2. Any specific reportKey explicitly granted by Admin
-   *     3. All reports in any external department(s) explicitly granted by Admin
+   * Delegates to authoritative effectiveAccessEngine.
    */
   public getAllowedReportKeysForUser(user: UserAccount | UserSession): string[] {
-    if (user.role === 'ADMIN' || user.role === 'AUDITOR') {
-      return Array.from(new Set(getAllReports().map((r) => r.ReturnKey)));
-    }
-
-    const allowed = new Set<string>();
-
-    // 1. Home department reports
-    if (user.department) {
-      const deptReports = departmentService.getReportsForDepartment(user.department);
-      deptReports.forEach((k) => allowed.add(k));
-
-      const userDeptNorm = user.department.trim().toLowerCase();
-      getAllReports().forEach((r) => {
-        if (
-          (r.department && r.department.trim().toLowerCase() === userDeptNorm) ||
-          (Array.isArray(r.departments) && r.departments.some((d) => d.trim().toLowerCase() === userDeptNorm))
-        ) {
-          allowed.add(r.ReturnKey);
-        }
-      });
-    }
-
-    // 2. Special access grants
-    const grants: SpecialAccessGrant[] =
-      (user as UserAccount).specialAccessGrants ||
-      (user as UserSession).specialAccessGrants ||
-      [];
-
-    const now = new Date();
-    for (const grant of grants) {
-      // Check expiration if present
-      if (grant.expiresAt) {
-        const exp = new Date(grant.expiresAt);
-        if (exp < now) continue;
-      }
-
-      if (grant.reportKey) {
-        allowed.add(grant.reportKey);
-      }
-      if (grant.department) {
-        const deptNames = grant.department.includes(',')
-          ? grant.department.split(',').map((s) => s.trim())
-          : [grant.department.trim()];
-        for (const d of deptNames) {
-          const extReports = departmentService.getReportsForDepartment(d);
-          extReports.forEach((k) => allowed.add(k));
-        }
-      }
-      if (Array.isArray(grant.departments)) {
-        for (const d of grant.departments) {
-          const extReports = departmentService.getReportsForDepartment(d);
-          extReports.forEach((k) => allowed.add(k));
-        }
-      }
-    }
-
-    return Array.from(allowed);
+    return effectiveAccessEngine.getAllowedReportKeysForUser(user);
   }
 
   /**
    * Verifies if a Maker is authorized to create/fill/submit a specific report.
+   * Delegates to authoritative effectiveAccessEngine.
    */
   public canMakerAccessReport(user: UserAccount | UserSession, reportKey: string): boolean {
-    if (user.role !== 'MAKER' && user.role !== 'ADMIN') return false;
-    const allowed = this.getAllowedReportKeysForUser(user);
-    return allowed.includes(reportKey);
+    return effectiveAccessEngine.evaluateAccess(user, reportKey, 'CREATE_DRAFT').allowed;
   }
 
   /**
-   * Verifies if a Checker can review a submission:
-   * Rule: The submission's report must be linked to the Checker's department,
-   * OR the Maker and Checker are from the same department,
-   * OR the Checker has been granted special cross-department access by the Admin.
+   * Verifies if a Checker can review a submission.
+   * Delegates to authoritative effectiveAccessEngine.
    */
   public canCheckerReviewSubmission(
     user: UserAccount | UserSession,
     submission: {
+      id?: string;
       department?: string;
       makerDepartment?: string;
+      makerId?: string;
+      status?: string;
       reportKey: string;
     }
   ): { allowed: boolean; reason?: string } {
-    if (user.role === 'ADMIN' || user.role === 'AUDITOR') {
-      // Admin and Auditor have independent oversight view but cannot sign off reviews
-      return {
-        allowed: false,
-        reason:
-          user.role === 'ADMIN'
-            ? 'Administrator has read-only compliance oversight. Review sign-off must be performed by an authorized Checker.'
-            : 'Auditor has independent supervisory oversight. Review sign-off must be performed by an authorized Checker.',
-      };
-    }
-
-    if (user.role !== 'CHECKER') {
-      return { allowed: false, reason: 'Only registered Checkers can perform 4-eyes reviews.' };
-    }
-
-    // Rule: Segregation of Duties - Maker cannot review or approve their own submission
-    if ((submission as any).makerId && user.id === (submission as any).makerId) {
-      return {
-        allowed: false,
-        reason: 'Segregation of duties violation: The Maker who created this submission cannot review or sign off on it as Checker.',
-      };
-    }
-
-    const subDept = submission.department || submission.makerDepartment || getDepartmentForReport(submission.reportKey);
-    const userDept = user.department;
-
-    // Rule 1: Same Department Check
-    if (userDept && subDept && userDept.trim().toLowerCase() === subDept.trim().toLowerCase()) {
-      return { allowed: true };
-    }
-
-    // Rule 1b: Check if the report is linked to the Checker's department (M:N relationship)
-    if (userDept) {
-      const linkedDepts = departmentService.getDepartmentsForReport(submission.reportKey);
-      if (linkedDepts.some((d) => d.toLowerCase() === userDept.toLowerCase())) {
-        return { allowed: true };
-      }
-    }
-
-    // Rule 2: Special Access Check
-    const grants: SpecialAccessGrant[] =
-      (user as UserAccount).specialAccessGrants ||
-      (user as UserSession).specialAccessGrants ||
-      [];
-
-    const now = new Date();
-    const subLinkedDepts = departmentService.getDepartmentsForReport(submission.reportKey);
-
-    for (const grant of grants) {
-      if (grant.expiresAt && new Date(grant.expiresAt) < now) continue;
-
-      if (grant.reportKey && grant.reportKey === submission.reportKey) {
-        return { allowed: true, reason: `Special Access granted by Admin: ${grant.reason}` };
-      }
-      if (grant.department) {
-        const deptNames = grant.department.includes(',')
-          ? grant.department.split(',').map((s) => s.trim().toLowerCase())
-          : [grant.department.trim().toLowerCase()];
-
-        if (
-          deptNames.includes(subDept.toLowerCase()) ||
-          subLinkedDepts.some((ld) => deptNames.includes(ld.toLowerCase()))
-        ) {
-          return { allowed: true, reason: `Cross-department review permission granted: ${grant.reason}` };
-        }
-      }
-      if (Array.isArray(grant.departments)) {
-        const grantDeptsNorm = grant.departments.map((d) => d.trim().toLowerCase());
-        if (
-          grantDeptsNorm.includes(subDept.toLowerCase()) ||
-          subLinkedDepts.some((ld) => grantDeptsNorm.includes(ld.toLowerCase()))
-        ) {
-          return { allowed: true, reason: `Cross-department review permission granted: ${grant.reason}` };
-        }
-      }
-    }
-
+    const evalResult = effectiveAccessEngine.evaluateAccess(user, submission.reportKey, 'REVIEW', submission as any);
     return {
-      allowed: false,
-      reason: `Checker department (${userDept || 'Unassigned'}) does not match return department (${subDept}). Cross-department review requires Administrator authorization.`,
+      allowed: evalResult.allowed,
+      reason: evalResult.allowed ? undefined : evalResult.reason,
     };
   }
 

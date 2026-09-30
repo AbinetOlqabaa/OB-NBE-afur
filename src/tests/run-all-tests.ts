@@ -348,6 +348,7 @@ import { runPhase3AdminUsersAndDepartmentsTests } from './phase3-admin-users-dep
 import { runPhase4RegressionHardeningTests } from './phase4-regression-hardening.test.ts';
 import { runDynamicReportDefinitionTests } from './dynamic-report-definition.test.ts';
 import { runPhase5FinalVerificationTests } from './phase5-final-verification.test.ts';
+import { runRelationshipEffectiveAccessEngineTests } from './relationship-effective-access-engine.test.ts';
 
 async function runFullApplicationTestSuite() {
   runRegulatoryCoreTests();
@@ -366,6 +367,7 @@ async function runFullApplicationTestSuite() {
   await runPhase4RegressionHardeningTests();
   await runDynamicReportDefinitionTests();
   await runPhase5FinalVerificationTests();
+  await runRelationshipEffectiveAccessEngineTests();
 
   console.log('\n========================================================================');
   console.log('✅ ALL COMPREHENSIVE AUTOMATED TEST SUITES PASSED CLEANLY (100% SUCCESS)');
