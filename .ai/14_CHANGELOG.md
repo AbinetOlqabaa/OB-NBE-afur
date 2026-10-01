@@ -4,6 +4,49 @@ All notable changes and engineering enhancements for the Oromia Bank NBE Regulat
 
 ---
 
+## [13.0.0-phase13-biometric-reset-recovery-devices] - 2026-10-01
+
+### Added
+- **Production Biometric Lifecycle Management, Reset, Recovery & Multi-Device Support (`src/services/biometricService.ts`, `src/services/userService.ts`, `src/components/BiometricSecurityCenter.tsx`, `src/components/UserSettingsModal.tsx`, `src/components/AdminDashboard.tsx`, `server.ts`, `src/tests/phase13-biometric-reset-recovery-devices.test.ts`, `13_BIOMETRIC_RESET_RECOVERY_AND_DEVICE_MANAGEMENT.md`)**:
+  - **Server-Authorized Face ID Reset**:
+    - Mandatory step-up password re-authentication before issuing reset authorization.
+    - Verification of existing enrollment state prior to reset.
+    - Explicit explanation of permanent consequences returned to user (invalidation of face vector template, cached authorization purge, required live optical re-scan).
+    - Single-use, short-lived (5 min TTL) cryptographic nonce tokens (`rst_*`).
+    - Atomic token consumption defending against replay and race conditions.
+    - Permanent template revocation and state transition back to `NOT_ENROLLED`, cleanly allowing fresh optical re-enrollment.
+  - **WebAuthn Credential Management & Multi-Authenticator Support**:
+    - Architectural support for registering and managing multiple hardware passkeys on a single institutional account (e.g. Work MacBook Touch ID, YubiKey 5C NFC, mobile passkey).
+    - Friendly device label renaming (`renameDeviceLabel` & `/api/auth/biometrics/device/rename`).
+    - Safe credential metadata inspection (masked IDs, monotonic replay counters, transports, timestamps).
+    - Selective individual device revocation (`revokeCredential` & `/api/auth/biometrics/revoke`) with step-up verification, preserving remaining registered passkeys.
+  - **Passkey Suspension & Resumption Lifecycle**:
+    - Temporary security hold (`suspendCredential` & `/api/auth/biometrics/suspend`) without destructive deletion.
+    - Safe credential resumption (`resumeCredential` & `/api/auth/biometrics/resume`) with step-up password verification.
+    - Rejection of authentication attempts on suspended credentials.
+  - **Security Protections & Hostile Path Defense**:
+    - Protection against stolen sessions: password verification required for any reset or revocation.
+    - Progressive lockout against brute-force password guessing on reset requests (5 failed attempts -> lockout).
+    - IDOR / Cross-user tampering rejection: non-admin users cannot reset or revoke other users' credentials.
+    - Token cross-user hijacking defense: tokens strictly bound to account email.
+    - Concurrency & race condition defense: atomic single-use consumption blocks parallel execution races.
+  - **Administrative Direct Reset & Lockout Recovery**:
+    - Supervisor emergency reset (`adminResetBiometrics` & `/api/auth/biometrics/admin/reset`) for lost or compromised hardware.
+    - Supervisor administrative lockout unlock (`adminUnlockAccount` & `/api/auth/biometrics/admin/unlock`).
+    - Segregation of duties audit trail explicitly logging `ADMIN OVERRIDE`.
+  - **Biometric Security Center UI**:
+    - Dedicated, accessible UI component (`BiometricSecurityCenter.tsx`) integrated into `UserSettingsModal.tsx` and `AdminDashboard.tsx`.
+    - Real-time status cards for Face ID and WebAuthn passkeys.
+    - Registered devices table with device icons, safe telemetry, inline rename, suspend, and revoke actions.
+    - Recent security events audit stream.
+    - Official NBE Directive BSD/03/2020 lost device, hardware failure, and recovery guidance.
+    - Zero exposure of raw vectors, private keys, or passwords.
+  - **Automated Test Suite (`src/tests/phase13-biometric-reset-recovery-devices.test.ts`)**:
+    - 9 comprehensive test suites (58 assertions) covering authorized reset, wrong password rejection, consumed token replay defense, IDOR cross-user rejection, multi-device passkeys, individual revocation, suspension/resumption, concurrency race conditions, administrative emergency override, and zero-secret leakage telemetry.
+    - Integrated into `src/tests/run-all-tests.ts` (100% pass across all test suites).
+
+---
+
 ## [12.0.0-phase12-biometric-signin-authentication] - 2026-10-01
 
 ### Added

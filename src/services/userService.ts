@@ -573,10 +573,17 @@ class UserServiceClass {
       user.biometricCredentials = [];
     }
 
-    // Remove existing credential of same type if re-enrolling
-    user.biometricCredentials = user.biometricCredentials.filter(
-      (c) => c.type !== credential.type
-    );
+    // For WebAuthn passkeys, support multiple authenticators; update by credentialId
+    // For Face recognition, maintain single authoritative enrolled profile per user
+    if (credential.type === 'FINGERPRINT') {
+      user.biometricCredentials = user.biometricCredentials.filter(
+        (c) => c.credentialId !== credential.credentialId
+      );
+    } else {
+      user.biometricCredentials = user.biometricCredentials.filter(
+        (c) => c.type !== credential.type
+      );
+    }
     user.biometricCredentials.push(credential);
 
     const { password: pw, ...safe } = user;

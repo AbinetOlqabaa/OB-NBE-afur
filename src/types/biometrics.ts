@@ -164,7 +164,63 @@ export type BiometricAuditAction =
   | 'BIOMETRIC_AUTH_FAILURE'
   | 'BIOMETRIC_REVOKED'
   | 'BIOMETRIC_SUSPENDED'
+  | 'BIOMETRIC_RESUMED'
   | 'BIOMETRIC_RESET_REQUESTED'
   | 'BIOMETRIC_RESET_COMPLETED'
   | 'BIOMETRIC_LOCKOUT'
+  | 'BIOMETRIC_DEVICE_UPDATED'
   | 'BIOMETRIC_MIGRATION';
+
+export interface SafeDeviceMetadata {
+  id: string;
+  credentialId: string;
+  maskedId: string;
+  type: BiometricMethod;
+  status: BiometricLifecycleState;
+  deviceLabel: string;
+  enrolledAt: string;
+  lastUsedAt?: string;
+  revokedAt?: string;
+  revocationReason?: string;
+  counter: number;
+  transports?: string[];
+  aaguid?: string;
+}
+
+export interface SecurityCenterDetails {
+  email: string;
+  userName: string;
+  userRole: string;
+  department: string;
+  faceStatus: BiometricLifecycleState;
+  faceMetadata?: {
+    enrolledAt?: string;
+    lastUsedAt?: string;
+    qualityScore?: number;
+    livenessPassed?: boolean;
+    deviceLabel?: string;
+  };
+  passkeyStatus: BiometricLifecycleState;
+  devices: SafeDeviceMetadata[];
+  totalActiveDevices: number;
+  rateLimit: {
+    isLocked: boolean;
+    failedAttempts: number;
+    remainingLockoutSec: number;
+  };
+  recentBiometricEvents: Array<{
+    id: string;
+    action: string;
+    timestamp: string;
+    details: string;
+    actorName: string;
+    actorRole: string;
+  }>;
+  recoveryGuidance: {
+    nbeDirective: string;
+    lostDeviceInstructions: string[];
+    hardwareFailureGuidance: string[];
+    stepUpRequirement: string;
+    complianceContact: string;
+  };
+}

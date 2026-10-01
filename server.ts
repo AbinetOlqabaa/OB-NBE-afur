@@ -1015,36 +1015,84 @@ app.get('/api/auth/biometrics/lifecycle/:email', (req, res) => {
   res.json(state);
 });
 
-// 9. Suspend Biometric Credential
-app.post('/api/auth/biometrics/suspend', (req, res) => {
-  const { email, credentialId, reason } = req.body;
-  if (!email || !credentialId) {
-    res.status(400).json({ success: false, message: 'Email and credentialId required.' });
+// 8b. Comprehensive Biometric Security Center & Device Metadata (Safe, Non-invertible)
+app.get('/api/auth/biometrics/security-center/:email', (req, res) => {
+  const details = biometricService.getSecurityCenterDetails(req.params.email);
+  if (!details) {
+    res.status(404).json({ success: false, message: 'Officer account not found.' });
     return;
   }
-  const result = biometricService.suspendCredential(email, credentialId, reason || 'Suspended by user/admin');
-  res.json(result);
+  res.json({ success: true, ...details });
 });
 
-// 10. Revoke Biometric Credential
-app.post('/api/auth/biometrics/revoke', (req, res) => {
-  const { email, credentialId, reason } = req.body;
+// 9. Suspend Biometric Credential
+app.post('/api/auth/biometrics/suspend', (req, res) => {
+  const { email, credentialId, reason, actorEmail } = req.body;
   if (!email || !credentialId) {
     res.status(400).json({ success: false, message: 'Email and credentialId required.' });
     return;
   }
-  const result = biometricService.revokeCredential(email, credentialId, reason || 'Revoked by user/admin');
-  res.json(result);
+  const result = biometricService.suspendCredential(email, credentialId, reason || 'Suspended by user/admin', actorEmail);
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(400).json(result);
+  }
+});
+
+// 9b. Resume / Reactivate Suspended Credential
+app.post('/api/auth/biometrics/resume', (req, res) => {
+  const { email, credentialId, reason, actorEmail, password } = req.body;
+  if (!email || !credentialId) {
+    res.status(400).json({ success: false, message: 'Email and credentialId required.' });
+    return;
+  }
+  const result = biometricService.resumeCredential(email, credentialId, reason, actorEmail, password);
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(400).json(result);
+  }
+});
+
+// 10. Revoke Biometric Credential (with step-up password support)
+app.post('/api/auth/biometrics/revoke', (req, res) => {
+  const { email, credentialId, reason, actorEmail, password } = req.body;
+  if (!email || !credentialId) {
+    res.status(400).json({ success: false, message: 'Email and credentialId required.' });
+    return;
+  }
+  const result = biometricService.revokeCredential(email, credentialId, reason || 'Revoked by user/admin', actorEmail, password);
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(400).json(result);
+  }
+});
+
+// 10b. Rename Device Label
+app.post('/api/auth/biometrics/device/rename', (req, res) => {
+  const { email, credentialId, newLabel, actorEmail } = req.body;
+  if (!email || !credentialId || !newLabel) {
+    res.status(400).json({ success: false, message: 'Email, credentialId, and newLabel required.' });
+    return;
+  }
+  const result = biometricService.renameDeviceLabel(email, credentialId, newLabel, actorEmail);
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(400).json(result);
+  }
 });
 
 // 11. Request Step-up Authenticated Reset
 app.post('/api/auth/biometrics/reset/request', (req, res) => {
-  const { email, type, password, reason } = req.body;
+  const { email, type, password, reason, actorEmail } = req.body;
   if (!email || !password) {
     res.status(400).json({ success: false, message: 'Email and password required for reset authorization.' });
     return;
   }
-  const result = biometricService.requestReset(email, type || 'ALL', password, reason || 'User requested reset');
+  const result = biometricService.requestReset(email, type || 'ALL', password, reason || 'User requested reset', actorEmail);
   if (result.success) {
     res.json(result);
   } else {
@@ -1054,12 +1102,42 @@ app.post('/api/auth/biometrics/reset/request', (req, res) => {
 
 // 12. Execute Authorized Reset
 app.post('/api/auth/biometrics/reset/execute', (req, res) => {
-  const { email, resetToken } = req.body;
+  const { email, resetToken, actorEmail } = req.body;
   if (!email || !resetToken) {
     res.status(400).json({ success: false, message: 'Email and resetToken required.' });
     return;
   }
-  const result = biometricService.executeReset(email, resetToken);
+  const result = biometricService.executeReset(email, resetToken, actorEmail);
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(400).json(result);
+  }
+});
+
+// 12b. Administrative Direct Reset (Supervisor Emergency Override)
+app.post('/api/auth/biometrics/admin/reset', (req, res) => {
+  const { adminEmail, targetEmail, type, reason, adminPassword } = req.body;
+  if (!adminEmail || !targetEmail || !adminPassword) {
+    res.status(400).json({ success: false, message: 'adminEmail, targetEmail, and adminPassword required.' });
+    return;
+  }
+  const result = biometricService.adminResetBiometrics(adminEmail, targetEmail, type || 'ALL', reason || 'Administrative emergency reset', adminPassword);
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(400).json(result);
+  }
+});
+
+// 12c. Administrative Unlock Account Lockout
+app.post('/api/auth/biometrics/admin/unlock', (req, res) => {
+  const { adminEmail, targetEmail, reason } = req.body;
+  if (!adminEmail || !targetEmail) {
+    res.status(400).json({ success: false, message: 'adminEmail and targetEmail required.' });
+    return;
+  }
+  const result = biometricService.adminUnlockAccount(adminEmail, targetEmail, reason || 'Administrative unlock');
   if (result.success) {
     res.json(result);
   } else {

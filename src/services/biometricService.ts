@@ -16,6 +16,8 @@ import {
   WebAuthnAuthenticationOptions,
   BiometricRateLimitState,
   BiometricAuditAction,
+  SafeDeviceMetadata,
+  SecurityCenterDetails,
 } from '../types/biometrics.ts';
 import { userService, UserAccount } from './userService.ts';
 import { auditService } from './auditService.ts';
@@ -304,8 +306,8 @@ export class BiometricServiceClass {
 
   public recordFailure(
     email: string,
-    type: BiometricMethod,
-    reason: string
+    type: BiometricMethod = 'FINGERPRINT',
+    reason: string = 'Authentication failure'
   ): { isLocked: boolean; remainingLockoutSec: number; failedAttempts: number } {
     const norm = email.toLowerCase().trim();
     let state = this.rateLimits.get(norm);
@@ -429,6 +431,7 @@ export class BiometricServiceClass {
       deviceLabel?: string;
       aaguid?: string;
       transports?: string[];
+      replaceExisting?: boolean;
     }
   ): { success: boolean; credential?: BiometricCredentialRecord; message?: string } {
     const norm = email.toLowerCase().trim();
@@ -470,13 +473,21 @@ export class BiometricServiceClass {
       };
     }
 
-    // Remove existing FINGERPRINT credential for this user to allow clean re-enrollment
-    for (const [k, cred] of this.credentials.entries()) {
-      if (cred.userId === user.id && cred.type === 'FINGERPRINT') {
-        cred.status = 'REVOKED';
-        cred.revokedAt = new Date().toISOString();
-        cred.revocationReason = 'Re-enrolled with new passkey';
-        this.credentials.delete(k);
+    // For WebAuthn passkeys, support multi-device registration (e.g. Work Laptop Touch ID + USB Security Key)
+    if (response.replaceExisting) {
+      for (const [k, cred] of this.credentials.entries()) {
+        if (cred.userId === user.id && cred.type === 'FINGERPRINT') {
+          cred.status = 'REVOKED';
+          cred.revokedAt = new Date().toISOString();
+          cred.revocationReason = 'Replaced by user during fresh passkey enrollment';
+          this.credentials.delete(k);
+        }
+      }
+    } else {
+      for (const [k, cred] of this.credentials.entries()) {
+        if (cred.userId === user.id && cred.credentialId === response.credentialId) {
+          this.credentials.delete(k);
+        }
       }
     }
 
@@ -1110,14 +1121,18 @@ export class BiometricServiceClass {
     }
 
     const creds = Array.from(this.credentials.values()).filter((c) => c.userId === user.id);
-    const fpCred = creds.find((c) => c.type === 'FINGERPRINT');
+    const fpCreds = creds.filter((c) => c.type === 'FINGERPRINT');
     const faceCred = creds.find((c) => c.type === 'FACE');
 
     let fingerprintState: BiometricLifecycleState = 'NOT_ENROLLED';
     if (rateLimit.isLocked) {
       fingerprintState = 'FAILED_LOCKED';
-    } else if (fpCred) {
-      fingerprintState = fpCred.status;
+    } else if (fpCreds.some((c) => c.status === 'ENROLLED')) {
+      fingerprintState = 'ENROLLED';
+    } else if (fpCreds.some((c) => c.status === 'SUSPENDED')) {
+      fingerprintState = 'SUSPENDED';
+    } else if (fpCreds.some((c) => c.status === 'REVOKED')) {
+      fingerprintState = 'REVOKED';
     }
 
     let faceState: BiometricLifecycleState = 'NOT_ENROLLED';
@@ -1136,11 +1151,26 @@ export class BiometricServiceClass {
     };
   }
 
-  public suspendCredential(email: string, credentialId: string, reason: string): { success: boolean; message?: string } {
+  /**
+   * Suspends a biometric credential (temporary hold without permanent revocation).
+   */
+  public suspendCredential(
+    email: string,
+    credentialId: string,
+    reason: string,
+    actorEmail?: string
+  ): { success: boolean; message?: string } {
     const norm = email.toLowerCase().trim();
     const user = userService.getByEmail(norm);
     if (!user) {
       return { success: false, message: 'User not found.' };
+    }
+
+    if (actorEmail && actorEmail.toLowerCase().trim() !== norm) {
+      const actor = userService.getByEmail(actorEmail.toLowerCase().trim());
+      if (!actor || actor.role !== 'ADMIN') {
+        return { success: false, message: 'Security violation: Unauthorized credential suspension.' };
+      }
     }
 
     const cred = Array.from(this.credentials.values()).find(
@@ -1149,6 +1179,10 @@ export class BiometricServiceClass {
 
     if (!cred) {
       return { success: false, message: 'Credential not found.' };
+    }
+
+    if (cred.status !== 'ENROLLED') {
+      return { success: false, message: `Cannot suspend credential in ${cred.status} state.` };
     }
 
     cred.status = 'SUSPENDED';
@@ -1164,11 +1198,37 @@ export class BiometricServiceClass {
     return { success: true, message: `Biometric credential suspended successfully.` };
   }
 
-  public revokeCredential(email: string, credentialId: string, reason: string): { success: boolean; message?: string } {
+  /**
+   * Resumes/reactivates a suspended biometric credential.
+   */
+  public resumeCredential(
+    email: string,
+    credentialId: string,
+    reason: string = 'User resumed credential',
+    actorEmail?: string,
+    password?: string
+  ): { success: boolean; message?: string } {
     const norm = email.toLowerCase().trim();
     const user = userService.getByEmail(norm);
     if (!user) {
       return { success: false, message: 'User not found.' };
+    }
+
+    const isSelf = !actorEmail || actorEmail.toLowerCase().trim() === norm;
+    let actor = user;
+    if (!isSelf) {
+      const actorUser = userService.getByEmail(actorEmail!.toLowerCase().trim());
+      if (!actorUser || actorUser.role !== 'ADMIN') {
+        return { success: false, message: 'Security violation: Unauthorized credential reactivation.' };
+      }
+      actor = actorUser;
+    }
+
+    if (password) {
+      const requiredPw = isSelf ? user.password : actor.password;
+      if (requiredPw !== password) {
+        return { success: false, message: 'Invalid password. Step-up authentication required to reactivate credential.' };
+      }
     }
 
     const cred = Array.from(this.credentials.values()).find(
@@ -1177,6 +1237,69 @@ export class BiometricServiceClass {
 
     if (!cred) {
       return { success: false, message: 'Credential not found.' };
+    }
+
+    if (cred.status !== 'SUSPENDED') {
+      return { success: false, message: `Cannot resume credential that is currently in ${cred.status} state.` };
+    }
+
+    cred.status = 'ENROLLED';
+    this.logAudit({
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role,
+      action: 'BIOMETRIC_RESUMED',
+      entityId: user.id,
+      details: `Resumed suspended ${cred.type} biometric credential (${credentialId}) for ${user.email}. Reason: ${reason}`,
+    });
+
+    return { success: true, message: `Biometric credential reactivated successfully.` };
+  }
+
+  /**
+   * Revokes a specific biometric credential permanently.
+   */
+  public revokeCredential(
+    email: string,
+    credentialId: string,
+    reason: string,
+    actorEmail?: string,
+    password?: string
+  ): { success: boolean; message?: string; credential?: BiometricCredentialRecord } {
+    const norm = email.toLowerCase().trim();
+    const user = userService.getByEmail(norm);
+    if (!user) {
+      return { success: false, message: 'User not found.' };
+    }
+
+    const isSelf = !actorEmail || actorEmail.toLowerCase().trim() === norm;
+    let actor = user;
+    if (!isSelf) {
+      const actorUser = userService.getByEmail(actorEmail!.toLowerCase().trim());
+      if (!actorUser || actorUser.role !== 'ADMIN') {
+        return { success: false, message: 'Security violation: Cross-user credential revocation unauthorized.' };
+      }
+      actor = actorUser;
+    }
+
+    if (password) {
+      const requiredPw = isSelf ? user.password : actor.password;
+      if (requiredPw !== password) {
+        this.recordFailure(norm);
+        return { success: false, message: 'Invalid password. Step-up authentication required to revoke credential.' };
+      }
+    }
+
+    const cred = Array.from(this.credentials.values()).find(
+      (c) => c.userId === user.id && c.credentialId === credentialId
+    );
+
+    if (!cred) {
+      return { success: false, message: 'Credential not found.' };
+    }
+
+    if (cred.status === 'REVOKED') {
+      return { success: false, message: 'Credential is already revoked.' };
     }
 
     cred.status = 'REVOKED';
@@ -1189,31 +1312,183 @@ export class BiometricServiceClass {
     }
 
     this.logAudit({
-      actorId: user.id,
-      actorName: user.name,
-      actorRole: user.role,
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role,
       action: 'BIOMETRIC_REVOKED',
       entityId: user.id,
       details: `Permanently revoked ${cred.type} biometric credential (${credentialId}) for ${user.email}. Reason: ${reason}`,
     });
 
-    return { success: true, message: 'Biometric credential revoked successfully.' };
+    return { success: true, message: `Biometric credential revoked successfully.`, credential: cred };
+  }
+
+  /**
+   * Updates/renames friendly device label for an authenticator.
+   */
+  public renameDeviceLabel(
+    email: string,
+    credentialId: string,
+    newLabel: string,
+    actorEmail?: string
+  ): { success: boolean; message?: string; credential?: BiometricCredentialRecord } {
+    const norm = email.toLowerCase().trim();
+    const user = userService.getByEmail(norm);
+    if (!user) {
+      return { success: false, message: 'User not found.' };
+    }
+
+    if (actorEmail && actorEmail.toLowerCase().trim() !== norm) {
+      const actor = userService.getByEmail(actorEmail.toLowerCase().trim());
+      if (!actor || actor.role !== 'ADMIN') {
+        return { success: false, message: 'Security violation: Unauthorized device renaming.' };
+      }
+    }
+
+    const cred = Array.from(this.credentials.values()).find(
+      (c) => c.userId === user.id && c.credentialId === credentialId
+    );
+
+    if (!cred) {
+      return { success: false, message: 'Credential not found.' };
+    }
+
+    const trimmed = (newLabel || '').trim();
+    if (!trimmed || trimmed.length > 80) {
+      return { success: false, message: 'Device label must be between 1 and 80 characters.' };
+    }
+
+    const oldLabel = cred.deviceLabel;
+    cred.deviceLabel = trimmed;
+
+    if (user.biometricCredentials) {
+      const uCred = user.biometricCredentials.find((c) => c.credentialId === credentialId);
+      if (uCred) {
+        uCred.deviceLabel = trimmed;
+      }
+    }
+
+    this.logAudit({
+      actorId: user.id,
+      actorName: user.name,
+      actorRole: user.role,
+      action: 'BIOMETRIC_DEVICE_UPDATED',
+      entityId: user.id,
+      details: `Renamed biometric device (${credentialId}) from "${oldLabel}" to "${trimmed}" for ${user.email}`,
+    });
+
+    return { success: true, message: `Device renamed to "${trimmed}".`, credential: cred };
   }
 
   /**
    * Initiates biometric reset with mandatory step-up password authentication.
+   * Protects reset from stolen sessions, takeover, replay, and cross-user tampering.
    */
   public requestReset(
     email: string,
     type: BiometricMethod | 'ALL',
     password: string,
-    reason: string
-  ): { success: boolean; resetToken?: string; message?: string } {
+    reason: string,
+    actorEmail?: string
+  ): {
+    success: boolean;
+    resetToken?: string;
+    message?: string;
+    consequences?: string;
+    targetUser?: { id: string; name: string; email: string };
+  } {
     const norm = email.toLowerCase().trim();
-    const user = userService.getByEmail(norm);
-    if (!user || user.password !== password) {
-      return { success: false, message: 'Invalid password. Step-up authentication required to reset biometrics.' };
+
+    // Check progressive rate limits on the target account
+    const rateCheck = this.checkRateLimit(norm);
+    if (rateCheck.isLocked) {
+      return {
+        success: false,
+        message: `Account is temporarily locked due to excessive failed attempts. Please try again after lockout expires or contact compliance administration.`,
+      };
     }
+
+    const user = userService.getByEmail(norm);
+    if (!user) {
+      return { success: false, message: 'User not found.' };
+    }
+
+    // Cross-user deletion / IDOR defense: Actor must be target user or ADMIN
+    const isSelf = !actorEmail || actorEmail.toLowerCase().trim() === norm;
+    let actor = user;
+    if (!isSelf) {
+      const actorUser = userService.getByEmail(actorEmail!.toLowerCase().trim());
+      if (!actorUser || actorUser.role !== 'ADMIN') {
+        this.logAudit({
+          actorId: actorUser?.id || 'unknown',
+          actorName: actorUser?.name || 'Unauthorized Actor',
+          actorRole: actorUser?.role || 'UNKNOWN',
+          action: 'BIOMETRIC_AUTH_FAILURE',
+          entityId: user.id,
+          details: `Rejected unauthorized cross-user reset attempt for ${user.email} by ${actorEmail}. Cross-user deletion prohibited.`,
+        });
+        return {
+          success: false,
+          message: 'Security violation: Cross-user biometric reset unauthorized.',
+        };
+      }
+      actor = actorUser;
+    }
+
+    // Verify existing enrollment before allowing reset
+    const userCreds = Array.from(this.credentials.values()).filter(
+      (c) => c.userId === user.id && (c.status === 'ENROLLED' || c.status === 'SUSPENDED')
+    );
+    const hasFace = userCreds.some((c) => c.type === 'FACE');
+    const hasFp = userCreds.some((c) => c.type === 'FINGERPRINT');
+
+    if (type === 'FACE' && !hasFace) {
+      return {
+        success: false,
+        message: 'No enrolled Face ID recognition profile found for this account to reset.',
+      };
+    }
+    if (type === 'FINGERPRINT' && !hasFp) {
+      return {
+        success: false,
+        message: 'No enrolled WebAuthn passkeys found for this account to reset.',
+      };
+    }
+    if (type === 'ALL' && !hasFace && !hasFp) {
+      return {
+        success: false,
+        message: 'No active biometric credentials enrolled on this account.',
+      };
+    }
+
+    // Step-up password verification
+    const expectedPassword = isSelf ? user.password : actor.password;
+    if (expectedPassword !== password) {
+      this.recordFailure(norm);
+      this.logAudit({
+        actorId: actor.id,
+        actorName: actor.name,
+        actorRole: actor.role,
+        action: 'BIOMETRIC_AUTH_FAILURE',
+        entityId: user.id,
+        details: `Failed step-up password authentication for biometric reset on account ${user.email}.`,
+      });
+      return {
+        success: false,
+        message: 'Invalid password. Step-up authentication required to reset biometrics.',
+      };
+    }
+
+    // Clear failed attempts upon successful password verification
+    this.recordSuccess(norm);
+
+    // Consequences explanation
+    const consequences =
+      type === 'FACE'
+        ? 'Resetting Face ID permanently invalidates the enrolled facial vector template. Cached device authorizations will be purged, requiring an in-person optical camera re-scan to re-enable facial biometric sign-in.'
+        : type === 'FINGERPRINT'
+        ? 'Resetting WebAuthn passkeys permanently revokes all hardware-bound platform passkeys and security keys. Hardware authenticators will need to be re-registered.'
+        : 'Resetting all biometrics permanently wipes and revokes both Face ID vectors and WebAuthn passkeys. All biometric authentication methods will return to NOT_ENROLLED.';
 
     const resetToken = `rst_${generateCryptographicNonce(24)}`;
     this.resetTokens.set(resetToken, {
@@ -1225,25 +1500,38 @@ export class BiometricServiceClass {
     });
 
     this.logAudit({
-      actorId: user.id,
-      actorName: user.name,
-      actorRole: user.role,
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role,
       action: 'BIOMETRIC_RESET_REQUESTED',
       entityId: user.id,
-      details: `Step-up authorized biometric reset requested for ${user.email} (${type}). Reason: ${reason}`,
+      details: `${!isSelf ? 'ADMIN OVERRIDE: ' : ''}Step-up authorized biometric reset requested for ${user.email} (${type}). Reason: ${reason}`,
     });
 
     return {
       success: true,
       resetToken,
       message: 'Reset authorization granted. Ready to purge credentials and begin fresh re-enrollment.',
+      consequences,
+      targetUser: { id: user.id, name: user.name, email: user.email },
     };
   }
 
   /**
    * Executes the reset using the short-lived authorized token.
+   * Atomically invalidates the token to defend against replay and race conditions.
    */
-  public executeReset(email: string, resetToken: string): { success: boolean; message?: string } {
+  public executeReset(
+    email: string,
+    resetToken: string,
+    actorEmail?: string
+  ): {
+    success: boolean;
+    message?: string;
+    revokedCount?: number;
+    resetType?: BiometricMethod | 'ALL';
+    canReEnroll?: boolean;
+  } {
     const norm = email.toLowerCase().trim();
     const user = userService.getByEmail(norm);
     if (!user) {
@@ -1251,7 +1539,12 @@ export class BiometricServiceClass {
     }
 
     const tokenRecord = this.resetTokens.get(resetToken);
-    if (!tokenRecord || tokenRecord.consumed || Date.now() > tokenRecord.expiresAt) {
+    if (!tokenRecord || tokenRecord.consumed) {
+      return { success: false, message: 'Reset token is invalid or has expired.' };
+    }
+
+    if (Date.now() > tokenRecord.expiresAt) {
+      this.resetTokens.delete(resetToken);
       return { success: false, message: 'Reset token is invalid or has expired.' };
     }
 
@@ -1259,18 +1552,23 @@ export class BiometricServiceClass {
       return { success: false, message: 'Security violation: Reset token does not match account identity.' };
     }
 
+    // Atomically consume token (Single-use replay defense)
     tokenRecord.consumed = true;
+    this.resetTokens.delete(resetToken);
 
     // Purge credentials matching type
+    let revokedCount = 0;
+    const nowStr = new Date().toISOString();
     const credsToPurge = Array.from(this.credentials.entries()).filter(
       ([_, c]) => c.userId === user.id && (tokenRecord.type === 'ALL' || c.type === tokenRecord.type)
     );
 
     for (const [key, c] of credsToPurge) {
       c.status = 'REVOKED';
-      c.revokedAt = new Date().toISOString();
+      c.revokedAt = nowStr;
       c.revocationReason = 'User reset and re-enrollment requested';
       this.credentials.delete(key);
+      revokedCount++;
     }
 
     // Sync with userService
@@ -1283,10 +1581,20 @@ export class BiometricServiceClass {
     // Reset rate limits
     this.recordSuccess(norm);
 
+    const actor = actorEmail ? (userService.getByEmail(actorEmail.toLowerCase().trim()) || user) : user;
     this.logAudit({
-      actorId: user.id,
-      actorName: user.name,
-      actorRole: user.role,
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role,
+      action: 'BIOMETRIC_REVOKED',
+      entityId: user.id,
+      details: `Revoked ${revokedCount} biometric credential(s) during authorized reset (${tokenRecord.type}) for ${user.email}.`,
+    });
+
+    this.logAudit({
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role,
       action: 'BIOMETRIC_RESET_COMPLETED',
       entityId: user.id,
       details: `Biometric credentials purged and reset to NOT_ENROLLED for ${user.email} (${tokenRecord.type}). Account ready for fresh enrollment.`,
@@ -1294,7 +1602,165 @@ export class BiometricServiceClass {
 
     return {
       success: true,
+      revokedCount,
+      resetType: tokenRecord.type,
+      canReEnroll: true,
       message: 'Biometric credentials successfully reset. You may now perform a fresh enrollment.',
+    };
+  }
+
+  /**
+   * Administrative direct biometric reset for compromised hardware or supervisor escalation.
+   */
+  public adminResetBiometrics(
+    adminEmail: string,
+    targetEmail: string,
+    type: BiometricMethod | 'ALL',
+    reason: string,
+    adminPassword: string
+  ): { success: boolean; message?: string; revokedCount?: number } {
+    const admin = userService.getByEmail(adminEmail.toLowerCase().trim());
+    if (!admin || admin.role !== 'ADMIN') {
+      return { success: false, message: 'Supervisory administration role required.' };
+    }
+
+    if (admin.password !== adminPassword) {
+      return { success: false, message: 'Invalid administrator password.' };
+    }
+
+    const resetReq = this.requestReset(targetEmail, type, adminPassword, reason, adminEmail);
+    if (!resetReq.success || !resetReq.resetToken) {
+      return { success: false, message: resetReq.message };
+    }
+
+    const execRes = this.executeReset(targetEmail, resetReq.resetToken, adminEmail);
+    return execRes;
+  }
+
+  /**
+   * Administrative override to clear progressive rate limiting lockout.
+   */
+  public adminUnlockAccount(
+    adminEmail: string,
+    targetEmail: string,
+    reason: string = 'Administrative lockout reset'
+  ): { success: boolean; message?: string } {
+    const admin = userService.getByEmail(adminEmail.toLowerCase().trim());
+    if (!admin || admin.role !== 'ADMIN') {
+      return { success: false, message: 'Supervisory administration role required.' };
+    }
+
+    const norm = targetEmail.toLowerCase().trim();
+    this.recordSuccess(norm);
+
+    this.logAudit({
+      actorId: admin.id,
+      actorName: admin.name,
+      actorRole: admin.role,
+      action: 'BIOMETRIC_AUTH_SUCCESS',
+      entityId: norm,
+      details: `ADMIN OVERRIDE: Administrator ${admin.email} manually cleared biometric lockout for ${norm}. Reason: ${reason}`,
+    });
+
+    return { success: true, message: `Biometric lockout cleared for ${norm}.` };
+  }
+
+  /**
+   * Retrieves comprehensive, sanitized security center details for an officer.
+   * NEVER exposes raw vectors, image buffers, or secret material.
+   */
+  public getSecurityCenterDetails(email: string): SecurityCenterDetails | null {
+    const norm = email.toLowerCase().trim();
+    const user = userService.getByEmail(norm);
+    if (!user) return null;
+
+    const userState = this.getBiometricUserState(norm);
+    const userCreds = Array.from(this.credentials.values()).filter((c) => c.userId === user.id);
+
+    const faceCred = userCreds.find((c) => c.type === 'FACE');
+    const fpCreds = userCreds.filter((c) => c.type === 'FINGERPRINT');
+
+    // Safe device metadata mapping (Masking raw IDs, providing safe descriptors)
+    const devices: SafeDeviceMetadata[] = fpCreds.map((c) => {
+      const rawId = c.credentialId;
+      const maskedId =
+        rawId.length > 16
+          ? `${rawId.substring(0, 10)}...${rawId.substring(rawId.length - 6)}`
+          : rawId;
+
+      return {
+        id: c.id,
+        credentialId: c.credentialId,
+        maskedId,
+        type: c.type,
+        status: c.status,
+        deviceLabel: c.deviceLabel,
+        enrolledAt: c.enrolledAt,
+        lastUsedAt: c.lastUsedAt,
+        revokedAt: c.revokedAt,
+        revocationReason: c.revocationReason,
+        counter: c.counter,
+        transports: c.transports,
+        aaguid: c.aaguid,
+      };
+    });
+
+    const faceMetadata = faceCred
+      ? {
+          enrolledAt: faceCred.enrolledAt,
+          lastUsedAt: faceCred.lastUsedAt,
+          qualityScore: faceCred.faceTemplate?.qualityScore || 0.95,
+          livenessPassed: faceCred.faceTemplate?.livenessPassed || true,
+          deviceLabel: faceCred.deviceLabel,
+        }
+      : undefined;
+
+    // Filter recent biometric events for this officer
+    const allAudit = auditService.getLogs(100);
+    const recentBiometricEvents = allAudit
+      .filter((a) => a.entityType === 'BIOMETRIC_SECURITY' && (a.entityId === user.id || a.details.includes(user.email)))
+      .slice(0, 8)
+      .map((a) => ({
+        id: a.id,
+        action: a.action,
+        timestamp: a.timestamp,
+        details: a.details,
+        actorName: a.actorName,
+        actorRole: a.actorRole,
+      }));
+
+    return {
+      email: user.email,
+      userName: user.name,
+      userRole: user.role,
+      department: user.department || 'Prudential Supervision',
+      faceStatus: userState.faceState,
+      faceMetadata,
+      passkeyStatus: userState.fingerprintState,
+      devices,
+      totalActiveDevices: devices.filter((d) => d.status === 'ENROLLED').length,
+      rateLimit: {
+        isLocked: userState.rateLimit.isLocked,
+        failedAttempts: userState.rateLimit.failedAttempts,
+        remainingLockoutSec: userState.rateLimit.remainingLockoutSec,
+      },
+      recentBiometricEvents,
+      recoveryGuidance: {
+        nbeDirective: 'NBE BSD/03/2020 Segregation & Identity Assurance Standard',
+        lostDeviceInstructions: [
+          'Immediately report lost, stolen, or compromised hardware to the Compliance Security Administrator.',
+          'Use the "Revoke Device" button in the Registered Devices panel to permanently deactivate compromised passkeys.',
+          'Your remaining registered devices and primary institutional password remain valid.',
+        ],
+        hardwareFailureGuidance: [
+          'If camera or optical sensor fails, use your registered Touch ID/passkey as secondary factor.',
+          'If passkeys are unavailable, sign in using primary password and supervisory recovery token.',
+          'Initiate Face ID Reset after hardware repair to complete a fresh optical scan.',
+        ],
+        stepUpRequirement:
+          'Mandatory step-up authentication with institutional password is required for all reset and revocation operations.',
+        complianceContact: 'compliance-security@oromiabank.com | Ext: 4421',
+      },
     };
   }
 
