@@ -20,6 +20,8 @@ import { WorkflowEngine } from './workflowEngine.ts';
 import { FormulaEngine } from '../utils/formulaEngine.ts';
 import { ValidationEngine } from '../utils/validationEngine.ts';
 import type { ValidationSummary } from '../utils/validationEngine.ts';
+import { ValidationRemediationService } from './validationRemediationService.ts';
+import type { NormalizedValidationSummary, ProposedFix } from '../types/remediation.ts';
 import { nbeAdapter } from './nbeAdapter.ts';
 import type { DeliveryResult } from './nbeAdapter.ts';
 import { auditService } from './auditService.ts';
@@ -1082,6 +1084,80 @@ class SubmissionServiceClass {
 
     const report = this.getEffectiveTemplate(sub);
     return ValidationEngine.validateReport(report, sub.values, sub.dynamicRows);
+  }
+
+  /**
+   * Phase 24: Authoritative Server-Side Validation Normalization & Remediation Inspection.
+   * Returns fully normalized validation items with 4-part explanations and auto-fix descriptors.
+   */
+  public validateSubmissionNormalized(id: string): NormalizedValidationSummary {
+    const sub = this.submissions.get(id);
+    if (!sub) throw new Error(`Submission not found: ${id}`);
+
+    const report = this.getEffectiveTemplate(sub);
+    return ValidationRemediationService.normalizeReportValidation(report, sub.values, sub.dynamicRows);
+  }
+
+  /**
+   * Phase 24: Authoritative Remediation Auto-Fix Execution.
+   * Applies deterministic fix, writes updated draft, re-runs validation, and logs safe audit trail.
+   */
+  public remediateSubmission(
+    id: string,
+    proposedFix: ProposedFix,
+    user: UserSession,
+    expectedVersion?: number
+  ): {
+    updatedSubmission: ReportSubmission;
+    revalidationSummary: NormalizedValidationSummary;
+    auditEntry: any;
+  } {
+    const sub = this.submissions.get(id);
+    if (!sub) throw new Error(`Submission not found: ${id}`);
+
+    // Concurrency conflict check
+    if (expectedVersion !== undefined && expectedVersion !== sub.version) {
+      throw new Error(
+        `CONCURRENT_MODIFICATION_CONFLICT: Submission ${id} has been modified concurrently (expected v${expectedVersion}, current server state is v${sub.version}). Please reload before applying remediation.`
+      );
+    }
+
+    // Role and status verification: only editable by Maker while in DRAFT or CORRECTION_REQUIRED
+    const evalResult = effectiveAccessEngine.evaluateAccess(user, sub.reportKey, 'CREATE_DRAFT', sub);
+    if (!evalResult.allowed && sub.makerId !== user.id && sub.makerName !== user.name) {
+      throw new Error(`REMEDIATION_FORBIDDEN: You do not have permission to modify submission ${id}.`);
+    }
+
+    if (sub.status !== 'DRAFT' && sub.status !== 'CORRECTION_REQUIRED') {
+      throw new Error(`CANNOT_REMEDIATE_SUBMITTED_REPORT: Submission ${id} is in '${sub.status}' state and cannot be modified.`);
+    }
+
+    const report = this.getEffectiveTemplate(sub);
+
+    const { updatedValues, updatedDynamicRows, revalidationSummary, auditEntry } =
+      ValidationRemediationService.applyAutoFix(
+        report,
+        sub.values,
+        sub.dynamicRows,
+        proposedFix,
+        user,
+        sub.id
+      );
+
+    // Save draft with updated values and bumped version
+    const updatedSubmission = this.updateDraft(
+      sub.id,
+      updatedValues,
+      updatedDynamicRows,
+      user,
+      sub.version
+    );
+
+    return {
+      updatedSubmission,
+      revalidationSummary,
+      auditEntry,
+    };
   }
 
   /**

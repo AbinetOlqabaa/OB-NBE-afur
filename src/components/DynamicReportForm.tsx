@@ -28,6 +28,13 @@ import { FieldAuditHoverTool } from './FieldAuditHoverTool.tsx';
 import { InputAccessoryView } from './InputAccessoryView.tsx';
 import { vibrate, haptics } from '../utils/haptics.ts';
 import { indexedDbStorage } from '../services/indexedDbStorage.ts';
+import { ValidationRemediationService } from '../services/validationRemediationService.ts';
+import { ValidationRemediationAssistant } from './ValidationRemediationAssistant.tsx';
+import type {
+  NormalizedValidationSummary,
+  NormalizedValidationItem,
+  ProposedFix,
+} from '../types/remediation.ts';
 import {
   Save,
   Send,
@@ -48,6 +55,7 @@ import {
   Clock,
   ExternalLink,
   Sparkles,
+  Wand2,
 } from 'lucide-react';
 
 interface DynamicReportFormProps {
@@ -76,6 +84,10 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
   const [values, setValues] = useState<Record<string, string | number>>(submission.values || {});
   const [dynamicRows, setDynamicRows] = useState<Record<number, DynamicRowRecord[]>>(submission.dynamicRows || {});
   const [validation, setValidation] = useState<FormValidationState | null>(null);
+  const [remediationSummary, setRemediationSummary] = useState<NormalizedValidationSummary | null>(null);
+  const [assistantOpen, setAssistantOpen] = useState<boolean>(false);
+  const [highlightedFieldCode, setHighlightedFieldCode] = useState<string | null>(null);
+  const [isFixing, setIsFixing] = useState<boolean>(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
@@ -217,7 +229,7 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
     vibrate(20);
   };
 
-  // Recalculate formulas and validations using real-time Zod schema engine
+  // Recalculate formulas and validations using real-time Zod schema engine & unified remediation assistant
   const recalculateAndValidate = (
     currentVals: Record<string, string | number>,
     currentDynamic: Record<number, DynamicRowRecord[]>
@@ -225,7 +237,101 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
     const calculatedVals = FormulaEngine.calculateReport(metadata, currentVals, currentDynamic);
     const zodValidationState = ZodValidationService.validateReport(metadata, calculatedVals, currentDynamic);
     setValidation(zodValidationState);
+
+    // Phase 24: Authoritative Normalized Validation & Remediation Assistant Summary
+    const normalizedSummary = ValidationRemediationService.normalizeReportValidation(
+      metadata,
+      calculatedVals,
+      currentDynamic
+    );
+    setRemediationSummary(normalizedSummary);
+
     return calculatedVals;
+  };
+
+  // Phase 24 Requirement 5: Navigate to and highlight relevant field
+  const handleNavigateToField = (item: NormalizedValidationItem) => {
+    if (item.areaId !== undefined) {
+      setActiveFormTab('DYNAMIC_SCHEDULES');
+      setAssistantOpen(false);
+      setHighlightedFieldCode(item.fieldCode);
+      setTimeout(() => {
+        const el = document.getElementById(`dynamic-cell-${item.areaId}-${item.rowId}-${item.fieldCode}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.focus();
+        }
+      }, 100);
+      setTimeout(() => setHighlightedFieldCode(null), 3500);
+      return;
+    }
+
+    setActiveFormTab('ITEMS');
+    setAssistantOpen(false);
+
+    if (itemTypeFilter !== 'ALL' && itemTypeFilter !== 'ERRORS_ONLY') {
+      setItemTypeFilter('ALL');
+    }
+    if (filterQuery) {
+      setFilterQuery('');
+    }
+
+    const itemIndex = metadata.ReturnItemsList.findIndex((i) => i.Code === item.fieldCode);
+    if (itemIndex >= 0) {
+      const targetPage = Math.floor(itemIndex / itemsPageSize) + 1;
+      setItemsPage(targetPage);
+    }
+
+    setHighlightedFieldCode(item.fieldCode);
+    setTimeout(() => {
+      const el = document.getElementById(`field-input-${item.fieldCode}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.focus();
+        if (el instanceof HTMLInputElement) el.select();
+      }
+    }, 150);
+
+    setTimeout(() => setHighlightedFieldCode(null), 3500);
+  };
+
+  // Phase 24 Requirements 6, 8 & 9: Safe Auto-Fix, Save & Authoritative Rerun
+  const handleApplyFix = async (proposedFix: ProposedFix) => {
+    try {
+      setIsFixing(true);
+      const { updatedValues, updatedDynamicRows, revalidationSummary } =
+        ValidationRemediationService.applyAutoFix(
+          metadata,
+          values,
+          dynamicRows,
+          proposedFix,
+          currentUser,
+          submission.id
+        );
+
+      setValues(updatedValues);
+      setDynamicRows(updatedDynamicRows);
+      setRemediationSummary(revalidationSummary);
+
+      // Re-run Zod state in sync
+      const zodValidationState = ZodValidationService.validateReport(metadata, updatedValues, updatedDynamicRows);
+      setValidation(zodValidationState);
+
+      setHasUnsavedChanges(true);
+      hasUnsavedChangesRef.current = true;
+
+      // Authoritative Save (Requirement 9)
+      onSave(updatedValues, updatedDynamicRows, submission.version);
+
+      setSaveFeedback(`Auto-Fix Applied: ${proposedFix.description}`);
+      vibrate(25);
+      setTimeout(() => setSaveFeedback(null), 4000);
+    } catch (err: any) {
+      setSaveFeedback(`Auto-fix failed: ${err.message}`);
+      setTimeout(() => setSaveFeedback(null), 4000);
+    } finally {
+      setIsFixing(false);
+    }
   };
 
   // Initial calculation on mount
@@ -601,6 +707,41 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
             <span>XLSX</span>
           </button>
 
+          {/* Phase 24: Unified Validation & Remediation Assistant Trigger */}
+          <button
+            type="button"
+            onClick={() => setAssistantOpen(true)}
+            className={`min-h-[44px] sm:min-h-[34px] flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl sm:rounded-lg border transition-colors shadow-2xs cursor-pointer touch-manipulation touch-press ${
+              remediationSummary && !remediationSummary.isSubmissionReady
+                ? 'bg-rose-50 dark:bg-rose-950/80 border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-200 hover:bg-rose-100'
+                : remediationSummary && remediationSummary.warningsCount > 0
+                ? 'bg-amber-50 dark:bg-amber-950/80 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-200 hover:bg-amber-100'
+                : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100'
+            }`}
+            title="Open Unified Validation & Remediation Assistant (NBE BSD/03/2020)"
+          >
+            <Wand2 className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-ob-indigo-600 dark:text-ob-indigo-400" />
+            <span className="hidden sm:inline">Remediation Assistant</span>
+            <span className="sm:hidden">Assistant</span>
+            {remediationSummary && (
+              <span
+                className={`px-1.5 py-0.2 text-[10px] font-bold rounded-full font-mono ${
+                  remediationSummary.blockingErrorsCount > 0
+                    ? 'bg-rose-600 text-white'
+                    : remediationSummary.warningsCount > 0
+                    ? 'bg-amber-500 text-white'
+                    : 'bg-emerald-600 text-white'
+                }`}
+              >
+                {remediationSummary.blockingErrorsCount > 0
+                  ? remediationSummary.blockingErrorsCount
+                  : remediationSummary.warningsCount > 0
+                  ? `${remediationSummary.warningsCount}w`
+                  : '✓'}
+              </span>
+            )}
+          </button>
+
           {!isEffectiveReadOnly && (
             <>
               <button
@@ -802,17 +943,27 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
                 </span>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setItemTypeFilter(itemTypeFilter === 'ERRORS_ONLY' ? 'ALL' : 'ERRORS_ONLY')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
-                itemTypeFilter === 'ERRORS_ONLY'
-                  ? 'bg-rose-700 text-white shadow-xs'
-                  : 'bg-white dark:bg-slate-800 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-slate-700'
-              }`}
-            >
-              {itemTypeFilter === 'ERRORS_ONLY' ? 'Showing Errors Only' : 'Filter to Errors Only'}
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setAssistantOpen(true)}
+                className="px-3 py-1 bg-rose-700 hover:bg-rose-800 text-white font-bold rounded-lg text-xs transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
+              >
+                <Wand2 className="w-3.5 h-3.5" />
+                <span>Open Remediation Assistant</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setItemTypeFilter(itemTypeFilter === 'ERRORS_ONLY' ? 'ALL' : 'ERRORS_ONLY')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                  itemTypeFilter === 'ERRORS_ONLY'
+                    ? 'bg-rose-800 text-white shadow-xs'
+                    : 'bg-white dark:bg-slate-800 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-slate-700'
+                }`}
+              >
+                {itemTypeFilter === 'ERRORS_ONLY' ? 'Showing Errors Only' : 'Filter to Errors Only'}
+              </button>
+            </div>
           </div>
 
           {/* Issue Pills Preview */}
@@ -945,11 +1096,16 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
                   const hasError = !!fieldError && fieldError.severity === 'ERROR';
                   const hasWarning = !!fieldError && fieldError.severity === 'WARNING';
 
+                  const isHighlighted = highlightedFieldCode === item.Code;
+                  const remediationItem = remediationSummary?.items.find((i) => i.fieldCode === item.Code);
+
                   return (
                     <tr
                       key={item.Code}
                       className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors ${
-                        hasError
+                        isHighlighted
+                          ? 'ring-2 ring-amber-500 bg-amber-100/70 dark:bg-amber-950/60 animate-pulse'
+                          : hasError
                           ? 'bg-rose-50/40 dark:bg-rose-950/20'
                           : hasWarning
                           ? 'bg-amber-50/30 dark:bg-amber-950/15'
@@ -982,25 +1138,52 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
                             </div>
                           </div>
 
-                          {/* Real-time field validation error message */}
+                          {/* Real-time field validation error message & inline auto-fix */}
                           {fieldError && (
                             <div
                               id={`error-${item.Code}`}
-                              className={`flex items-start gap-1.5 text-[11px] font-medium px-2 py-1 rounded-md border animate-in fade-in duration-150 ${
+                              className={`flex flex-col gap-1.5 text-[11px] font-medium p-2 rounded-md border animate-in fade-in duration-150 ${
                                 hasError
                                   ? 'bg-rose-50 dark:bg-rose-950/80 border-rose-200 dark:border-rose-900/80 text-rose-700 dark:text-rose-300'
                                   : 'bg-amber-50 dark:bg-amber-950/80 border-amber-200 dark:border-amber-900/80 text-amber-700 dark:text-amber-300'
                               }`}
                             >
-                              <AlertCircle className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${hasError ? 'text-rose-600 dark:text-rose-400' : 'text-amber-600 dark:text-amber-400'}`} />
-                              <div className="flex flex-col">
-                                <span>{fieldError.message}</span>
-                                {(fieldError as any).constraintType && (
-                                  <span className="text-[9px] uppercase tracking-wider font-mono opacity-80 text-rose-800 dark:text-rose-300">
-                                    [Constraint: {(fieldError as any).constraintType.replace('_', ' ')}]
-                                  </span>
-                                )}
+                              <div className="flex items-start gap-1.5">
+                                <AlertCircle className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${hasError ? 'text-rose-600 dark:text-rose-400' : 'text-amber-600 dark:text-amber-400'}`} />
+                                <div className="flex flex-col flex-1">
+                                  <span>{fieldError.message}</span>
+                                  {(fieldError as any).constraintType && (
+                                    <span className="text-[9px] uppercase tracking-wider font-mono opacity-80 text-rose-800 dark:text-rose-300">
+                                      [Constraint: {(fieldError as any).constraintType.replace('_', ' ')}]
+                                    </span>
+                                  )}
+                                </div>
                               </div>
+
+                              {remediationItem?.autoFixable && !isEffectiveReadOnly && (
+                                <div className="flex items-center gap-2 pt-1 border-t border-rose-200/60 dark:border-rose-900/60">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (remediationItem.proposedFix) {
+                                        handleApplyFix(remediationItem.proposedFix);
+                                      }
+                                    }}
+                                    disabled={isFixing}
+                                    className="px-2 py-0.5 text-[10px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded transition-colors flex items-center gap-1 shadow-2xs cursor-pointer disabled:opacity-50"
+                                  >
+                                    <Wand2 className="w-2.5 h-2.5" />
+                                    <span>Auto-Fix ({remediationItem.suggestedAction})</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setAssistantOpen(true)}
+                                    className="text-[10px] text-ob-indigo-600 dark:text-ob-indigo-400 hover:underline cursor-pointer"
+                                  >
+                                    Why this matters →
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           )}
 
@@ -1224,6 +1407,18 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
           onDone={handleDoneInput}
         />
       )}
+
+      {/* 8. Phase 24: Unified Validation & Remediation Assistant Drawer */}
+      <ValidationRemediationAssistant
+        summary={remediationSummary}
+        isOpen={assistantOpen}
+        onClose={() => setAssistantOpen(false)}
+        onNavigateToField={handleNavigateToField}
+        onApplyFix={handleApplyFix}
+        currentUser={currentUser}
+        readOnly={isEffectiveReadOnly}
+        isFixing={isFixing}
+      />
     </div>
   );
 };

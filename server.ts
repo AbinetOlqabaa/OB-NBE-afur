@@ -30,6 +30,7 @@ import { bulkOperationsEngine } from './src/services/bulkOperationsEngine.ts';
 import { realtimeSsotEngine } from './src/services/realtimeSsotEngine.ts';
 import { configurationGovernanceService } from './src/services/configurationGovernanceService.ts';
 import { biometricService } from './src/services/biometricService.ts';
+import { ValidationRemediationService } from './src/services/validationRemediationService.ts';
 
 dotenv.config();
 
@@ -680,10 +681,60 @@ app.post('/api/regulatory/submissions/:id/reuse', (req, res) => {
   }
 });
 
-// Validate submission
+// Validate submission (authoritative summary)
 app.post('/api/regulatory/submissions/:id/validate', (req, res) => {
   try {
     const summary = submissionService.validateSubmission(req.params.id);
+    res.json(summary);
+  } catch (err: any) {
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
+  }
+});
+
+// Phase 24: Authoritative Normalized Validation & Remediation Assistant Inspection
+app.get('/api/regulatory/submissions/:id/remediation', (req, res) => {
+  try {
+    const normalizedSummary = submissionService.validateSubmissionNormalized(req.params.id);
+    res.json(normalizedSummary);
+  } catch (err: any) {
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
+  }
+});
+
+// Phase 24: Authoritative Remediation Auto-Fix Execution
+app.post('/api/regulatory/submissions/:id/remediation/apply', (req, res) => {
+  const { proposedFix, user, expectedVersion } = req.body;
+  const activeUser = user || DEMO_USERS[0];
+  try {
+    if (!proposedFix) {
+      res.status(400).json({ error: 'Missing proposedFix payload' });
+      return;
+    }
+    const result = submissionService.remediateSubmission(
+      req.params.id,
+      proposedFix,
+      activeUser,
+      expectedVersion !== undefined ? Number(expectedVersion) : undefined
+    );
+    res.json(result);
+  } catch (err: any) {
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
+  }
+});
+
+// Phase 24: Authoritative Real-Time Payload Validation without Persisting
+app.post('/api/regulatory/validate-payload', (req, res) => {
+  const { metadata, values, dynamicRows } = req.body;
+  try {
+    if (!metadata) {
+      res.status(400).json({ error: 'Missing report metadata' });
+      return;
+    }
+    const summary = ValidationRemediationService.normalizeReportValidation(
+      metadata,
+      values || {},
+      dynamicRows || {}
+    );
     res.json(summary);
   } catch (err: any) {
     res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });

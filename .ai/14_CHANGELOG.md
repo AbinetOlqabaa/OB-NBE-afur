@@ -4,6 +4,40 @@ All notable changes and engineering enhancements for the Oromia Bank NBE Regulat
 
 ---
 
+## [24.0.0-phase24-validation-error-warning-remediation-assistant] - 2026-10-02
+
+### Added & Enhanced
+- **Phase 24: Unified Validation & Remediation Assistant (`remediation.ts`, `validationRemediationService.ts`, `ValidationRemediationAssistant.tsx`, `DynamicReportForm.tsx`, `submissionService.ts`, `server.ts`, `src/tests/phase24-validation-remediation-assistant.test.ts`)**:
+  - **Authoritative Server-Side Validation Normalization**:
+    - Built `ValidationRemediationService` unifying checks across return line items, dynamic repeatable schedules, cross-field regulatory rules, and report definition structures.
+    - Normalized output schema with severity (`BLOCKING_ERROR`, `WARNING`), category (`DATA_ERROR`, `REPORT_DEFINITION_ERROR`, `BUSINESS_RULE_ERROR`), path, fieldCode, fieldTitle, ruleSource, suggestedAction, and deterministic `proposedFix`.
+  - **4-Part Understandable Explanations**:
+    - Every error and warning provides a clear 4-part narrative:
+      1. `WHAT IS WRONG`: Concrete statement of invalid condition or missing input.
+      2. `WHY IT MATTERS`: Regulatory and supervisory consequence citing NBE Directive BSD/03/2020.
+      3. `HOW TO FIX IT`: Actionable step-by-step guidance for the officer.
+      4. `EXPECTED FORMAT`: Exact numeric, date, percentage, or text syntax required.
+  - **Interactive Locate & Focus Field Navigation**:
+    - Clicking "Locate" navigates to the item across tabs (`ITEMS` vs `DYNAMIC_SCHEDULES`), resets filters, switches pagination page, scrolls element into center viewport, focuses input, and temporarily pulses high-contrast amber highlight ring (`ring-2 ring-amber-500 animate-pulse`).
+  - **Safe Deterministic Auto-Fix Capability**:
+    - Deterministic corrections only: numeric formatting/comma cleanup, ETB currency 2-decimal precision rounding per NBE rules, ISO-8601 date normalization (`YYYY/MM/DD` -> `YYYY-MM-DD`, whitespace trimming), and formula total synchronization (`FormulaEngine.calculateReport`).
+  - **Strict Anti-Guessing Safety Guarantee**:
+    - Ambiguous business values (missing mandatory amounts, negative capital/asset balances, out-of-range percentage ratios, headcount counts, unparseable date strings, cross-field accounting imbalances) are strictly marked `autoFixable: false` and never automatically guessed.
+  - **CURRENT → PROPOSED Review Confirmation Modal**:
+    - Non-trivial fixes display interactive comparison modal showing Current Value, Proposed Value, Reason, and Rule Source before applying.
+  - **Authoritative Revalidation & Save Lifecycle**:
+    - Auto-fix persists updated draft, increments version, runs authoritative recalculation, and reruns normalization; issues are cleared from the summary only when genuinely resolved.
+  - **DATA ERROR vs REPORT-DEFINITION / RULE ERROR Segregation**:
+    - Distinguishes user input mistakes from template definition issues (e.g. duplicate field codes or circular references), displaying guidance that only authorized configuration users (`ADMIN`) can modify templates in Report Template Studio.
+  - **Audit Logging with Sensitive Value Redaction**:
+    - Recorded `VALIDATION_REMEDIATION_APPLIED` audit events with actor, submission ID, field, fix type, and timestamp, while completely redacting multi-million financial figures (`[REDACTED_FINANCIAL_VALUE_PROTECTED]`).
+  - **Pre-Submission Blocking Gate Enforcement**:
+    - Server-side and client-side gates prevent transition to `PENDING_CHECKER` while blocking errors remain.
+  - **Automated Acceptance Test Coverage**:
+    - 100% pass across all 12 test sections and 60+ assertions in `phase24-validation-remediation-assistant.test.ts`.
+
+---
+
 ## [23.1.0-phase23-maker-draft-edit-save-resubmit-lifecycle] - 2026-10-02
 
 ### Added & Enhanced
