@@ -83,6 +83,158 @@ export const BiometricSecurityCenter: React.FC<BiometricSecurityCenterProps> = (
   const [newDeviceLabel, setNewDeviceLabel] = useState<string>('');
   const [isRenaming, setIsRenaming] = useState<boolean>(false);
 
+  // Privacy Charter & Compliance Archive Export
+  const [privacyCharterOpen, setPrivacyCharterOpen] = useState<boolean>(false);
+  const [complianceArchiveData, setComplianceArchiveData] = useState<any>(null);
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+
+  // Phase 17: Admin Biometric Threshold Governance
+  const [thresholdSetting, setThresholdSetting] = useState<{
+    matchingThreshold: number;
+    minQualityThreshold: number;
+    preset: 'STRICT' | 'BALANCED' | 'TOLERANT' | 'CUSTOM';
+    description: string;
+  }>({
+    matchingThreshold: 65,
+    minQualityThreshold: 0.4,
+    preset: 'BALANCED',
+    description: 'Commercial Banking Balanced (Euclidean <= 65, ~75% confidence)',
+  });
+  const [isSavingThreshold, setIsSavingThreshold] = useState(false);
+  const [thresholdNotice, setThresholdNotice] = useState<string | null>(null);
+
+  const loadThresholdSettings = useCallback(async () => {
+    try {
+      const res = await fetch('/api/auth/biometrics/settings');
+      const data = await res.json();
+      if (data.success && data.settings) {
+        setThresholdSetting(data.settings);
+      } else {
+        const local = biometricService.getBiometricSettings();
+        setThresholdSetting(local);
+      }
+    } catch {
+      const local = biometricService.getBiometricSettings();
+      setThresholdSetting(local);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isAdmin) {
+      loadThresholdSettings();
+    }
+  }, [isAdmin, loadThresholdSettings]);
+
+  const handleUpdateThresholdPreset = async (preset: 'STRICT' | 'BALANCED' | 'TOLERANT') => {
+    setIsSavingThreshold(true);
+    setThresholdNotice(null);
+    try {
+      const res = await fetch('/api/auth/biometrics/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminEmail: currentUser.email,
+          settings: { preset },
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setThresholdSetting(data.settings);
+        setThresholdNotice(`Biometric matching policy updated to ${preset}.`);
+        triggerHaptic('success');
+      } else {
+        const local = biometricService.updateBiometricSettings({ preset }, currentUser.email);
+        setThresholdSetting(local.settings);
+        setThresholdNotice(local.message);
+        triggerHaptic('success');
+      }
+    } catch {
+      const local = biometricService.updateBiometricSettings({ preset }, currentUser.email);
+      setThresholdSetting(local.settings);
+      setThresholdNotice(local.message);
+      triggerHaptic('success');
+    } finally {
+      setIsSavingThreshold(false);
+    }
+  };
+
+  const handleUpdateCustomThreshold = async (val: number) => {
+    setIsSavingThreshold(true);
+    setThresholdNotice(null);
+    try {
+      const res = await fetch('/api/auth/biometrics/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminEmail: currentUser.email,
+          settings: { matchingThreshold: val },
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setThresholdSetting(data.settings);
+        setThresholdNotice(`Custom matching distance updated to ${val} units.`);
+        triggerHaptic('success');
+      } else {
+        const local = biometricService.updateBiometricSettings({ matchingThreshold: val }, currentUser.email);
+        setThresholdSetting(local.settings);
+        setThresholdNotice(local.message);
+        triggerHaptic('success');
+      }
+    } catch {
+      const local = biometricService.updateBiometricSettings({ matchingThreshold: val }, currentUser.email);
+      setThresholdSetting(local.settings);
+      setThresholdNotice(local.message);
+      triggerHaptic('success');
+    } finally {
+      setIsSavingThreshold(false);
+    }
+  };
+
+  const handleExportComplianceArchive = async () => {
+    setIsExporting(true);
+    try {
+      let archive: any;
+      try {
+        const res = await fetch('/api/auth/biometrics/compliance/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            requesterEmail: currentUser.email,
+            targetEmail: effectiveEmail,
+          }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          archive = data.archive;
+        } else {
+          throw new Error(data.message);
+        }
+      } catch {
+        archive = biometricService.exportComplianceArchive(currentUser.email, effectiveEmail);
+      }
+
+      setComplianceArchiveData(archive);
+      showNotice('success', `Compliance archive generated successfully (ID: ${archive.exportId}).`);
+
+      if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+        const blob = new Blob([JSON.stringify(archive, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `nbe_biometric_compliance_${archive.targetAccount || 'record'}_${Date.now()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    } catch (err: any) {
+      showNotice('error', err.message || 'Failed to export compliance archive.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   // Load Security Center Data
   const loadData = useCallback(async () => {
     try {
@@ -825,6 +977,187 @@ export const BiometricSecurityCenter: React.FC<BiometricSecurityCenterProps> = (
           </div>
         </div>
       )}
+
+      {/* Phase 17: Admin Biometric Matching Threshold & Optical Governance */}
+      {isAdmin && (
+        <div className="p-4 rounded-2xl bg-teal-500/5 dark:bg-teal-950/20 border border-teal-500/30 text-xs space-y-3.5 shadow-2xs">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-teal-900 dark:text-teal-200 font-bold">
+              <ScanFace className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+              <span>Supervisory Biometric Matching & Optical Tolerance Governance</span>
+              <span className="text-[9px] px-1.5 py-0.2 bg-teal-500/20 text-teal-800 dark:text-teal-300 font-mono font-bold rounded">
+                NBE BSD/03/2020
+              </span>
+            </div>
+
+            <span className="text-[11px] font-bold text-teal-700 dark:text-teal-300 bg-teal-500/10 px-2 py-0.5 rounded-lg border border-teal-500/20">
+              Active: {thresholdSetting.preset} (Distance $\le$ {thresholdSetting.matchingThreshold})
+            </span>
+          </div>
+
+          <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+            Configure the mathematical optical Euclidean distance tolerance for physical camera verification across branch workstations, mobile tablets (e.g. Samsung Galaxy Tab series), and employee webcams.
+          </p>
+
+          {thresholdNotice && (
+            <div className="p-2.5 rounded-xl bg-teal-50 dark:bg-teal-950/60 border border-teal-300 dark:border-teal-700 text-teal-800 dark:text-teal-200 text-[11px] font-medium flex items-center gap-2">
+              <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+              <span>{thresholdNotice}</span>
+            </div>
+          )}
+
+          {/* Preset Buttons */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            {[
+              {
+                id: 'STRICT',
+                title: 'NBE Strict Vault',
+                threshold: 36,
+                confidence: '~86% Match',
+                desc: 'Strict optical match. Ideal for high-spec workstations with controlled studio lighting.',
+              },
+              {
+                id: 'BALANCED',
+                title: 'Commercial Banking (Default)',
+                threshold: 65,
+                confidence: '~75% Match',
+                desc: 'Recommended default. Tolerates day/night ambient micro-shifts on tablets and webcams.',
+              },
+              {
+                id: 'TOLERANT',
+                title: 'Adaptive Tablet / Mobile',
+                threshold: 85,
+                confidence: '~65% Match',
+                desc: 'Maximum optical tolerance. Designed for dynamic lighting, screen glare, or field tablets.',
+              },
+            ].map((p) => {
+              const isSelected = thresholdSetting.preset === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => handleUpdateThresholdPreset(p.id as any)}
+                  disabled={isSavingThreshold}
+                  className={`p-3 rounded-xl border text-left flex flex-col justify-between transition-all cursor-pointer touch-press ${
+                    isSelected
+                      ? 'bg-teal-600 text-white border-teal-600 shadow-md shadow-teal-600/20'
+                      : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-teal-400'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between font-bold text-xs">
+                      <span>{p.title}</span>
+                      <span className={`text-[10px] font-mono ${isSelected ? 'text-teal-100' : 'text-teal-600 dark:text-teal-400'}`}>
+                        {p.confidence}
+                      </span>
+                    </div>
+                    <p className={`text-[10px] mt-1 leading-snug ${isSelected ? 'text-teal-100/90' : 'text-slate-500 dark:text-slate-400'}`}>
+                      {p.desc}
+                    </p>
+                  </div>
+                  <div className="mt-2 text-[9px] font-mono flex items-center justify-between pt-1 border-t border-current/20">
+                    <span>Threshold $\le$ {p.threshold}</span>
+                    <span>{isSelected ? 'ACTIVE POLICY' : 'Select'}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Slider for fine adjustment */}
+          <div className="pt-2 border-t border-teal-500/20 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px]">
+            <div className="space-y-0.5 text-slate-600 dark:text-slate-400">
+              <span className="font-semibold text-slate-800 dark:text-slate-200">Custom Matching Distance Limit:</span>
+              <p className="text-[10px]">Adjust Euclidean optical distance boundary (Lower = Stricter, Higher = More Tolerant).</p>
+            </div>
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              <input
+                type="range"
+                min="25"
+                max="110"
+                step="5"
+                value={thresholdSetting.matchingThreshold}
+                onChange={(e) => handleUpdateCustomThreshold(parseInt(e.target.value, 10))}
+                disabled={isSavingThreshold}
+                className="w-full sm:w-44 accent-teal-600 cursor-pointer"
+              />
+              <span className="font-mono font-bold text-xs px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded border border-slate-300 dark:border-slate-700 shrink-0">
+                {thresholdSetting.matchingThreshold} units
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. Privacy & Statutory Compliance Charter (Phase 14 Hardening) */}
+      <div className="p-4 rounded-2xl bg-blue-500/5 border border-blue-500/20 text-xs space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-blue-900 dark:text-blue-300 font-bold">
+            <ShieldCheck className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+            <span>Biometric Privacy, Compliance & Data Minimization Charter</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleExportComplianceArchive}
+              disabled={isExporting}
+              className="py-1 px-2.5 rounded-lg text-[11px] font-bold bg-blue-600 hover:bg-blue-700 text-white transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+            >
+              <ExternalLink className="w-3 h-3" />
+              <span>{isExporting ? 'Exporting...' : 'Export Compliance Archive'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPrivacyCharterOpen(!privacyCharterOpen)}
+              className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-semibold"
+            >
+              {privacyCharterOpen ? 'Hide Charter' : 'View Full Charter'}
+            </button>
+          </div>
+        </div>
+
+        <p className="text-[11px] text-slate-600 dark:text-slate-400">
+          In strict accordance with National Bank of Ethiopia Directive BSD/03/2020 and international biometric privacy principles, Oromia Bank employs mathematical one-way cryptographic tokens.
+        </p>
+
+        {privacyCharterOpen && (
+          <div className="pt-2 border-t border-blue-500/15 space-y-3 text-[11px] text-slate-600 dark:text-slate-300 animate-in fade-in duration-150">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <span className="font-bold text-slate-900 dark:text-white block">What Is Collected & Processed:</span>
+                <ul className="list-disc list-inside space-y-0.5 text-slate-600 dark:text-slate-400 text-[10.5px]">
+                  <li>Non-invertible Salted SHA-256 HMAC feature hashes (irreversible).</li>
+                  <li>FIDO2 / WebAuthn public keys (never private keys).</li>
+                  <li>Device friendly label, counter, and lifecycle status.</li>
+                </ul>
+              </div>
+              <div className="space-y-1">
+                <span className="font-bold text-slate-900 dark:text-white block">What Is Strictly Prohibited / Never Collected:</span>
+                <ul className="list-disc list-inside space-y-0.5 text-red-600 dark:text-red-400 text-[10.5px]">
+                  <li>Zero raw facial video frames or photographs stored.</li>
+                  <li>Zero raw fingerprint ridge patterns read by operating system.</li>
+                  <li>Zero persistent storage of unencrypted biometrics.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[10px] pt-1 border-t border-blue-500/10">
+              <div className="bg-slate-100 dark:bg-slate-800/60 p-2 rounded-lg">
+                <span className="font-bold block text-slate-900 dark:text-white">Processing Location</span>
+                <span>Ephemeral on-device extraction; server-authoritative token matching.</span>
+              </div>
+              <div className="bg-slate-100 dark:bg-slate-800/60 p-2 rounded-lg">
+                <span className="font-bold block text-slate-900 dark:text-white">Retention & Deletion</span>
+                <span>Active employment retention; instantaneous cryptographic shredding upon reset.</span>
+              </div>
+              <div className="bg-slate-100 dark:bg-slate-800/60 p-2 rounded-lg">
+                <span className="font-bold block text-slate-900 dark:text-white">Administrative Boundary</span>
+                <span>4-Eyes segregation; supervisors cannot reconstruct or forge biometrics.</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* ============================================================= */}
       {/* STEP-UP AUTHENTICATION: RESET CONFIRMATION MODAL */}

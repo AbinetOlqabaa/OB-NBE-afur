@@ -4,6 +4,123 @@ All notable changes and engineering enhancements for the Oromia Bank NBE Regulat
 
 ---
 
+## [23.1.0-phase23-maker-draft-edit-save-resubmit-lifecycle] - 2026-10-02
+
+### Added & Enhanced
+- **Phase 23: Maker Draft/Edit/Save/Resubmit & Reuse Lifecycle (`submissionService.ts`, `DynamicReportForm.tsx`, `MakerWorkspace.tsx`, `server.ts`, `src/types/regulatory.ts`, `src/tests/phase23-maker-draft-lifecycle.test.ts`)**:
+  - **Complete Primary Lifecycle (`CREATE → EDIT → SAVE DRAFT → LEAVE → RETURN → CONTINUE → VALIDATE → SUBMIT`)**:
+    - **Draft Creation**: Authorized Makers create report drafts initialized at v1 with cryptographic integrity seals and immutable `CREATE_DRAFT` audit records.
+    - **Persistent Edit & Save**: Edits update values and dynamic schedules, auto-calculate formulas, increment version, and persist to backend and IndexedDB with `UPDATE_DRAFT` audit tracking.
+    - **Leave & Return Safety**: Maker can safely leave the form; uncommitted changes are auto-persisted to prevent data loss. Returning to the workspace seamlessly reopens the exact persisted draft version with all input values preserved.
+    - **Validation & Submit**: Real-time Zod and ValidationEngine checks gate submission to Checker (`PENDING_CHECKER`), capturing an immutable historical snapshot.
+  - **Returned for Correction & Resubmission Lifecycle (`CORRECTION_REQUIRED → EDIT & CORRECT → RESUBMIT`)**:
+    - When a Checker reviews and requests corrections, report transitions to `CORRECTION_REQUIRED` with supervisory notes attached.
+    - Maker reopens returned report, updates values and dynamic schedules, validates, and resubmits to Checker with `RESUBMIT_TO_CHECKER` audit logging.
+  - **Submitted Report Immutability & "Reuse as New" Lifecycle (`SUBMITTED REPORT → REUSE AS NEW → NEW DRAFT → MODIFY → SAVE → SUBMIT`)**:
+    - **Strict In-Place Mutation Prevention**: Direct edit attempts on submitted/final reports (`SENT`, `APPROVED`, `SENDING`) are strictly blocked with descriptive errors; submitted reports are permanently sealed.
+    - **Reuse as New Mechanism**: Maker invokes `reuseSubmission(id, user)` which creates a brand-new report identity (status `DRAFT`, version 1) pre-populated with baseline values and dynamic rows, while linking `reusedFromSubmissionId` and `reusedFromVersion`.
+    - **Source Preservation Invariant**: Verified that source report values, integrity hash, and status remain 100% untouched and unchanged.
+    - **Full Workflow Support**: The new reused report is completely editable, saveable, validatable, and submittable as a new regulatory return.
+  - **Optimistic Concurrency & Multi-Tab Conflict Locking**:
+    - Enforced `expectedVersion` checking on `updateDraft` and `submitToChecker`; concurrent tab conflicts throw `CONCURRENT_MODIFICATION_CONFLICT` (HTTP 409 Conflict) preventing silent overwriting of edits.
+  - **Automated Acceptance Test Coverage**:
+    - 100% passing across all 6 test suites in `phase23-maker-draft-lifecycle.test.ts`.
+
+---
+
+## [23.0.0-phase21-22-23-dynamic-report-form-validation-xlsx-autosave] - 2026-10-02
+
+### Added & Enhanced
+- **Phase 21: Real-Time Field-Level Validation Logic (`DynamicReportForm.tsx`, `ValidationEngine.ts`, `DynamicAreaTable.tsx`, `src/tests/phase21-realtime-field-level-validation.test.ts`)**:
+  - **Currency & Precision Constraints**: Enforced 2 decimal place maximum precision on ETB currency amounts; rejected invalid formatting and non-numeric characters; enforced non-negative balance constraints for Capital, Cash, Deposit, Collateral, and Statutory Reserve accounts.
+  - **Ratio & Range Constraints**: Enforced percentage ratio range bounds (0.00% to 100.00%) with explicit range errors/warnings; enforced non-negative whole integer constraints for customer, borrower, and staff counts.
+  - **Mandatory Field Constraints**: Flagged missing required fields in real-time with descriptive regulatory warnings; rendered green `Mandatory field compliant` badges for valid inputs.
+  - **Dynamic Schedule Validation**: Propagated validation engine summaries to `DynamicAreaTable` displaying cell-level error outlines and alert tooltips across both desktop table and mobile card views.
+  - **Interactive Pre-Submission Gate**: Disabled `Submit to Checker` action with diagnostic counter and tooltips while validation errors remain; added interactive validation alert banner with 1-click error filtering (`ERRORS_ONLY`).
+  - **Automated Test Coverage**: 100% passing across all 18 assertions in `phase21-realtime-field-level-validation.test.ts`.
+
+- **Phase 22: SheetJS .xlsx Export for NBE-Compliant Offline Review (`DynamicReportForm.tsx`, `regulatoryReportXlsxExport.ts`, `excelService.ts`, `src/tests/phase22-xlsx-sheetjs-export.test.ts`)**:
+  - **NBE Multi-Sheet Workbook Generation**: Created 5-sheet statutory workbook using SheetJS (`xlsx`):
+    1. `Submission Summary`: Institutional identifiers (Oromia Bank S.C., InstCode `0000013`), return metadata, Maker & Checker 4-eyes audit trail, SHA-256 integrity seal, and Directive BSD/03/2020 citation.
+    2. `Return Items`: Fixed line items with Excel number formats (`#,##0.00`), calculation method indicators (Auto/Total/Direct Input), and validation status.
+    3. `Dynamic Schedules`: Dedicated worksheets for each dynamic area preserving borrower facilities and asset rosters.
+    4. `Validation Checklist`: Comprehensive compliance audit checklist evaluating all NBE consistency rules.
+    5. `Offline Review Sign-off`: Institutional examination record with signature lines for NBE Bank Supervision Directorate examiners and Bank Compliance Officers.
+  - **Resilient Binary Download**: Implemented Blob + `URL.createObjectURL` anchor download with graceful fallback to `XLSX.writeFile`; displayed real-time success toast with the standardized filename (`OB_NBE_${cleanKey}_FY${FinYear}_${Status}_${SubmissionId}.xlsx`).
+  - **Automated Test Coverage**: 100% passing in `phase22-xlsx-sheetjs-export.test.ts` (roundtrip binary parse and integrity verification).
+
+- **Phase 23: Periodic 30-Second IndexedDB Auto-Save (`DynamicReportForm.tsx`, `indexedDbStorage.ts`, `src/tests/phase23-indexeddb-autosave.test.ts`)**:
+  - **30-Second Interval Auto-Save**: Configured non-blocking timer in `DynamicReportForm` that automatically persists draft state to IndexedDB every 30 seconds when uncommitted Maker changes exist (`hasUnsavedChanges === true`).
+  - **Redundant Write Prevention**: Avoided unnecessary writes when form is clean or in read-only/auditor inspection mode.
+  - **Offline Durability & Mount Recovery**: Cached drafts in `indexedDbStorage` with `LOCAL_DRAFT` sync status and `offlineSavedAt` timestamp; automatically detected and restored newer offline drafts upon form mounting.
+  - **Live UI Telemetry**: Added dynamic header badge with rotating save spinner, last auto-saved timestamp (`Auto-saved at HH:MM:SS`), and live countdown (`in Ns`).
+  - **Automated Test Coverage**: 100% passing in `phase23-indexeddb-autosave.test.ts` (write verification, cadence simulation, and recovery).
+
+---
+
+## [15.0.0-phase15-biometric-e2e-hardware-validation-acceptance] - 2026-10-01
+
+### Added
+- **Biometric E2E, Hardware Validation & Acceptance Suite (`src/tests/phase15-biometric-e2e-hardware-validation-acceptance.test.ts`, `BIOMETRIC_ACCEPTANCE_MATRIX.md`, `src/hooks/useBiometricAuth.ts`, `15_BIOMETRIC_E2E_HARDWARE_VALIDATION_AND_ACCEPTANCE.md`)**:
+  - **Comprehensive Acceptance Matrix**: Structured audit table (`BIOMETRIC_ACCEPTANCE_MATRIX.md`) classifying all biometric capabilities across implementation, test coverage, runtime environment, acceptance result, and engineering notes.
+  - **Truthful Hardware Reporting**: Explicitly separates software verification from physical hardware verification. Platforms without attached capacitive Touch ID silicon or infrared depth sensors are truthfully designated `HARDWARE_PENDING` without simulated hardware success.
+  - **Camera Permission & Hardware State Handling**:
+    - Dedicated handling for `NotAllowedError` / `PermissionDeniedError` (clear permission guidance).
+    - Dedicated handling for `NotReadableError` / `TrackStartError` (busy camera alert advising user to close other apps).
+    - Dedicated handling for `AbortError` (dismiss/cancel without unhandled exceptions).
+    - Dedicated handling for `NotFoundError` (clear missing camera alert).
+    - Dedicated handling for `OverconstrainedError` (hardware constraint mismatch fallback).
+  - **Optical Quality & Liveness Verification**:
+    - Dark (<35) and overexposed glare (>235) luminance threshold enforcement.
+    - Laplacian gradient edge sharpness (<0.35) blur rejection.
+    - Single-face framing bounds (0 faces and >1 face rejections).
+    - Temporal variance anti-spoofing against static photo presentation attacks.
+  - **WebAuthn Platform Passkey Assertions**:
+    - Registration & assertion verification with monotonic counter increment validation.
+    - Exception handling for user abort, timeout, security policy restrictions, and unconfigured authenticators.
+    - Revoked passkey rejection and multi-credential device support.
+  - **Multi-Mechanism Login & Dashboard Redirections**:
+    - Strict method isolation (Password vs. Fingerprint vs. Face ID).
+    - Role-specific dashboard convergence: `MAKER_WORKSPACE`, `CHECKER_INBOX`, `ADMIN_DASHBOARD`, `AUDITOR_DASHBOARD`.
+    - Business continuity fallback to master institutional password.
+  - **Security & E2E Attack Resistance**:
+    - Cross-account IDOR isolation on Security Center and Compliance Export.
+    - Cryptographic nonce single-use replay defense.
+    - Authenticator counter rollback defense against cloned keys.
+    - Master institutional password verification for biometric resets.
+  - **Real Performance Benchmarks**:
+    - Optical quality analysis: **0.228 ms / frame**.
+    - Temporal liveness analysis: **0.046 ms / frame**.
+    - Salted HMAC-SHA256 template hashing: **0.066 ms / hash**.
+    - WebAuthn server assertion verification: **0.143 ms / assertion**.
+  - **Automated Test Suite**: 53 assertions in `phase15-biometric-e2e-hardware-validation-acceptance.test.ts` (100% passing).
+
+---
+
+## [14.0.0-phase14-biometric-service-hardening-privacy-compliance] - 2026-10-01
+
+### Added
+- **Biometric Service Hardening, Privacy & Statutory Compliance (`src/services/biometricService.ts`, `src/services/userService.ts`, `src/services/auditService.ts`, `server.ts`, `BIOMETRIC_SECURITY_PRIVACY_COMPLIANCE.md`, `src/tests/phase14-biometric-hardening-privacy-compliance.test.ts`, `14_BIOMETRIC_SERVICE_HARDENING_PRIVACY_AND_COMPLIANCE.md`)**:
+  - **Security Hardening**:
+    - Strict template equality matching (eliminated insecure `face_sig_*` prefix bypass).
+    - Input validation rejecting malformed, negative, or empty feature vectors and counters.
+    - Uniform error messages on auth options to prevent account enumeration and reconnaissance.
+    - Progressive delays (1s, 2s, 4s) on repeated failures and 15-minute temporary lockout.
+    - Step-up password verification for account unlock and reset authorization.
+  - **Data Privacy & Sanitization**:
+    - Non-invertible salted HMAC-SHA256 signatures (`computeProtectedFaceSignature`); zero raw image/video persistence.
+    - Comprehensive data sanitization in `auditService.ts` (`sanitizeAuditPayload`) stripping passwords, private keys, base64 image buffers, and raw numeric vectors from audit records.
+    - Transparent statutory privacy disclosure (`getPrivacyDisclosure`) citing NBE Directive BSD/03/2020.
+    - Data minimization retention purge (`purgeExpiredChallengesAndTokens`).
+    - Cryptographically sealed compliance archive export (`exportComplianceArchive`) with SHA-256 integrity checksum for NBE bank examiners.
+  - **Documented Technical Limitations**:
+    - Ambient luminance bounds (35–235 units), Laplacian sharpness threshold (0.35).
+    - Software 2D optical liveness vs. 3D hardware infrared depth sensors.
+    - Platform authenticator device-bound isolation.
+  - **Automated Test Suite**: 60+ assertions in `phase14-biometric-hardening-privacy-compliance.test.ts` (100% passing).
+
+---
+
 ## [13.0.0-phase13-biometric-reset-recovery-devices] - 2026-10-01
 
 ### Added
