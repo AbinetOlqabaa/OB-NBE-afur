@@ -61,6 +61,8 @@ import {
   AlertTriangle,
   RefreshCw,
   RotateCcw,
+  ShieldCheck,
+  Lock,
 } from 'lucide-react';
 import { templateInitializationService } from '../services/templateInitializationService.ts';
 
@@ -936,6 +938,14 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
               <h1 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white tracking-tight leading-tight truncate max-w-md sm:max-w-xl">
                 {metadata.Title}
               </h1>
+              {/* Phase 34: Visible Version & Governance Immutability Indicator */}
+              <div
+                className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-md border border-ob-indigo-200 dark:border-ob-indigo-800 bg-ob-indigo-50/80 dark:bg-ob-indigo-950/60 text-ob-indigo-800 dark:text-ob-indigo-300 font-semibold shrink-0"
+                title="Report definition (title, sections, fields, formulas, and NBE mapping) is governed by Compliance Administration. Maker enters report values only."
+              >
+                <ShieldCheck className="w-3 h-3 text-ob-indigo-600 dark:text-ob-indigo-400 shrink-0" />
+                <span>Template v{submission.templateVersion || 1} • Governed</span>
+              </div>
               <div
                 className={`inline-flex items-center gap-1.5 text-[10px] font-mono px-2.5 py-0.5 rounded-full border shrink-0 transition-all ${
                   saveStatus === 'SAVED'
@@ -1208,7 +1218,17 @@ export const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <span className="font-mono text-slate-500">Return: <strong>{metadata.Code}</strong></span>
-          <span className="font-mono text-slate-500">v{currentVersion}</span>
+          <span
+            className="inline-flex items-center gap-1 font-mono text-[10px] text-slate-700 dark:text-slate-300 bg-slate-200/80 dark:bg-slate-700/80 px-2 py-0.5 rounded border border-slate-300 dark:border-slate-600 font-bold"
+            title={submission.templateSnapshot ? 'Historically frozen template snapshot sealed at draft initiation' : 'Active authoritative report definition template'}
+          >
+            <Layers className="w-3 h-3 text-ob-indigo-500" />
+            <span>Tmpl v{submission.templateVersion || 1}</span>
+            {submission.templateSnapshot && (
+              <span className="text-[9px] text-ob-indigo-600 dark:text-ob-indigo-400 font-medium">(Snapshot)</span>
+            )}
+          </span>
+          <span className="font-mono text-slate-500 text-[10px]">Data v{currentVersion}</span>
         </div>
       </div>
 

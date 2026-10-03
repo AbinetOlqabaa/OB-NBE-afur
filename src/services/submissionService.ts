@@ -852,6 +852,58 @@ class SubmissionServiceClass {
     const report = this.getEffectiveTemplate(sub);
     let finalValues = { ...values };
 
+    // Phase 34: Maker Template Governance & Field Code Immutability Enforcement
+    // Makers enter and edit report values only.
+    // Maker cannot change report title, subtitle, section title, row title, column title,
+    // field code, formula definition, NBE mapping, API endpoint or validation rule.
+    if (user.role === 'MAKER') {
+      const allowedCodes = new Set<string>();
+      if (report.ReturnItemsList) {
+        report.ReturnItemsList.forEach((item) => allowedCodes.add(item.Code.trim().toUpperCase()));
+      }
+      if (report.Formulas) {
+        report.Formulas.forEach((f) => {
+          const t = (f.targetCode || (f as any).code || '').trim().toUpperCase();
+          if (t) allowedCodes.add(t);
+        });
+      }
+
+      for (const rawCode of Object.keys(values)) {
+        const codeUpper = rawCode.trim().toUpperCase();
+        if (!allowedCodes.has(codeUpper)) {
+          throw new Error(
+            `REPORT_DEFINITION_IMMUTABLE: Unknown or unauthorized field code '${rawCode}'. Makers cannot alter report schema or create new field codes. Only Compliance Administrators can govern report definitions.`
+          );
+        }
+      }
+
+      if (dynamicRows && report.DynamicItemsList && report.DynamicItemsList.length > 0) {
+        const allowedColsByArea = new Map<number, Set<string>>();
+        report.DynamicItemsList.forEach((area) => {
+          const colSet = new Set<string>();
+          area.DynamicItems.forEach((col) => colSet.add(col.Code.trim().toUpperCase()));
+          allowedColsByArea.set(area.Area, colSet);
+        });
+
+        for (const [rawAreaId, rowList] of Object.entries(dynamicRows)) {
+          const areaNum = Number(rawAreaId);
+          const allowedCols = allowedColsByArea.get(areaNum);
+          if (Array.isArray(rowList) && allowedCols) {
+            for (const row of rowList) {
+              const cellKeys = Object.keys(row.values || {});
+              for (const colKey of cellKeys) {
+                if (!allowedCols.has(colKey.trim().toUpperCase())) {
+                  throw new Error(
+                    `REPORT_DEFINITION_IMMUTABLE: Unknown or unauthorized schedule column code '${colKey}' in area ${areaNum}. Makers cannot alter schedule column schema.`
+                  );
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
     // Auto-calculate formulas
     if (report && report.Formulas.length > 0) {
       const calcResult = FormulaEngine.calculateAllFormulas(report.Formulas, finalValues);

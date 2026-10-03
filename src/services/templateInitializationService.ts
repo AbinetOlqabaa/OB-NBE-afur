@@ -154,8 +154,8 @@ export class TemplateInitializationService {
           const colVal = row.values?.[col.Code];
           if (this.isFieldSupplied(colVal)) {
             const rawCol = col as any;
-            const isColStruct = rawCol.isStructuralDefault === true || col.defaultValue !== undefined;
-            if (isColStruct && colVal === (rawCol.defaultValue ?? col.defaultValue)) {
+            const isColStruct = rawCol.isStructuralDefault === true || rawCol.defaultValue !== undefined;
+            if (isColStruct && colVal === rawCol.defaultValue) {
               continue;
             }
             return true;

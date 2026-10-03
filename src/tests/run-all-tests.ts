@@ -381,6 +381,7 @@ import { runPhase30FullIntegrationSecurityRegressionAcceptanceTests } from './ph
 import { runPhase31NbeJsonReportPackageImportAndSchemaNormalizationTests } from './phase31-nbe-json-report-package-import-and-schema-normalization.test.ts';
 import { runPhase32DynamicNbeApiEndpointRegistryAndSimulatorIntegrationTests } from './phase32-dynamic-nbe-api-endpoint-registry-and-simulator-integration.test.ts';
 import { runPhase33EmptyTemplateInitializationAndMakerDataEntryTests } from './phase33-empty-template-initialization-and-maker-data-entry.test.ts';
+import { runPhase34AdminTemplateGovernanceAndMakerTitleImmutabilityTests } from './phase34-admin-template-governance-and-maker-title-immutability.test.ts';
 import { runXlsxExportAndDynamicValidationTests } from './xlsx-export-and-dynamic-validation.test.ts';
 
 async function runFullApplicationTestSuite() {
@@ -419,6 +420,7 @@ async function runFullApplicationTestSuite() {
   await runPhase31NbeJsonReportPackageImportAndSchemaNormalizationTests();
   await runPhase32DynamicNbeApiEndpointRegistryAndSimulatorIntegrationTests();
   await runPhase33EmptyTemplateInitializationAndMakerDataEntryTests();
+  await runPhase34AdminTemplateGovernanceAndMakerTitleImmutabilityTests();
   await runXlsxExportAndDynamicValidationTests();
   await runPdfAndSnapshotTests();
   await runIndexedDbOfflineStorageTests();

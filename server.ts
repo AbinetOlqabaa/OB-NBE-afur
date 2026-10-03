@@ -91,6 +91,8 @@ function getAuthOrClientStatusCode(errMessage: string): number {
     m.includes('review denied') ||
     m.includes('forbidden') ||
     m.includes('cannot delete') ||
+    m.includes('report_definition_immutable') ||
+    m.includes('immutable') ||
     m.includes('denied')
   ) {
     return 403;
@@ -234,7 +236,7 @@ app.post('/api/config/reports/:key/versions', (req, res) => {
     const newVersion = configService.createReportVersion(req.params.key, req.body, actor);
     res.status(201).json(newVersion);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
   }
 });
 
@@ -249,7 +251,7 @@ app.post('/api/config/reports', (req, res) => {
     const result = configService.createReportDefinition(req.body, actor);
     res.status(201).json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
   }
 });
 
@@ -260,7 +262,7 @@ app.put('/api/config/reports/:key', (req, res) => {
     const updated = configService.updateReportDefinition(req.params.key, req.body, actor);
     res.json(updated);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
   }
 });
 
@@ -271,7 +273,7 @@ app.post('/api/config/reports/:key/retire', (req, res) => {
     const retired = configService.retireReport(req.params.key, actor, req.body.reason);
     res.json(retired);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
   }
 });
 
@@ -282,7 +284,7 @@ app.post('/api/config/reports/:key/versions/draft', (req, res) => {
     const draft = configService.createDraftVersion(req.params.key, req.body, actor);
     res.status(201).json(draft);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
   }
 });
 
@@ -294,7 +296,7 @@ app.put('/api/config/reports/:key/versions/:version', (req, res) => {
     const updated = configService.updateDraftVersion(req.params.key, vNum, req.body, actor);
     res.json(updated);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
   }
 });
 
@@ -305,7 +307,7 @@ app.post('/api/config/reports/:key/versions/:version/validate', (req, res) => {
     const result = configService.validateReportVersion(req.params.key, vNum);
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
   }
 });
 
@@ -316,7 +318,7 @@ app.get('/api/config/reports/:key/versions/:version/preview', (req, res) => {
     const preview = configService.previewReportVersion(req.params.key, vNum);
     res.json(preview);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
   }
 });
 
@@ -328,7 +330,7 @@ app.post('/api/config/reports/:key/versions/:version/publish', (req, res) => {
     const published = configService.publishReportVersion(req.params.key, vNum, actor, req.body.changelogSummary);
     res.json(published);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
   }
 });
 
@@ -996,6 +998,40 @@ app.post('/api/regulatory/submissions', (req, res) => {
 app.put('/api/regulatory/submissions/:id', (req, res) => {
   const { values, dynamicRows, user, expectedVersion } = req.body;
   const activeUser = user || DEMO_USERS[0];
+
+  // Phase 34: Maker Template Governance & Immutability Enforcement
+  // Maker enters and edits report values only. Maker cannot change report title,
+  // subtitle, section title, row title, column title, field code, formula definition,
+  // NBE mapping, API endpoint or validation rule.
+  const forbiddenDefinitionKeys = [
+    'title',
+    'name',
+    'subtitle',
+    'templateSnapshot',
+    'reportKey',
+    'formulas',
+    'validationRules',
+    'nbeMapping',
+    'endpointMetadata',
+    'apiEndpoint',
+    'sections',
+    'rows',
+    'columns',
+    'fieldCodes',
+    'fields',
+    'returnItemsList',
+    'dynamicItemsList',
+  ];
+
+  const presentForbidden = forbiddenDefinitionKeys.filter((k) => req.body[k] !== undefined);
+  if (presentForbidden.length > 0 && activeUser.role === 'MAKER') {
+    res.status(403).json({
+      error: `REPORT_DEFINITION_IMMUTABLE: Maker cannot change report definition metadata ('${presentForbidden.join(', ')}'). Only business values and schedule data entry are allowed.`,
+      code: 'REPORT_DEFINITION_IMMUTABLE',
+    });
+    return;
+  }
+
   try {
     const updated = submissionService.updateDraft(
       req.params.id,
