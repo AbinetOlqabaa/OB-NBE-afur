@@ -339,11 +339,3 @@ export async function runPhase25LibraryCoreAndMakerLibraryTests() {
   console.log('✅ ALL PHASE 25 LIBRARY CORE & MAKER LIBRARY ACCEPTANCE TESTS PASSED (100%)');
   console.log('========================================================================\n');
 }
-
-// Auto-run if executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
-  runPhase25LibraryCoreAndMakerLibraryTests().catch((err) => {
-    console.error('Phase 25 tests failed:', err);
-    process.exit(1);
-  });
-}
