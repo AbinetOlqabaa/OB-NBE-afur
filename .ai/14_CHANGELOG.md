@@ -4,6 +4,29 @@ All notable changes and engineering enhancements for the Oromia Bank NBE Regulat
 
 ---
 
+## [25.1.0-phase25-library-core-architecture-and-maker-library-acceptance] - 2026-10-03
+
+### Verified & Hardened
+- **Phase 25: Library Core Architecture and Maker Library Acceptance Pass (`25_LIBRARY_CORE_ARCHITECTURE_AND_MAKER_LIBRARY.md`, `src/components/MakerLibraryView.tsx`, `src/services/submissionService.ts`, `src/tests/phase25-library-core-architecture-maker-library.test.ts`)**:
+  - **Authoritative SSOT Backing (Requirement 1)**: Verified Library is backed directly by the live authoritative `submissionService` SSOT and historical snapshots rather than any detached duplicate database.
+  - **Lifecycle States (Requirement 2)**: Verified complete lifecycle states (`DRAFT`, `IN_PROGRESS`, `RETURNED`, `SUBMITTED`, `REUSED_COPY`, `ARCHIVED`, `VOIDED`) with automated state derivation via `deriveLibraryLifecycleState`.
+  - **Maker Unsubmitted Save, Reopen, Edit, Validate, and Submit (Requirement 3)**: Verified that Makers can open unfinished drafts, edit figures, run authoritative validations, and submit directly to Checker queues.
+  - **Reuse of Submitted Returns (Requirement 4)**: Verified that submitted reports can be reused as new returns, generating a distinct report ID and v1 identity while preserving the source report ID (`reusedFromSubmissionId`), leaving the source report completely immutable.
+  - **Maker Deletion Restrictions (Requirements 5 & 6)**: Verified that Makers can delete unsubmitted drafts only; deletion of submitted, approved, or pending reports is strictly forbidden at both UI and server API levels under NBE Directive BSD/03/2020.
+  - **Search, Filtering, Sorting & Pagination (Requirement 7)**: Verified server-side filtering by search query, lifecycle state, status, report type, frequency, date ranges, sorting orders, and pagination.
+  - **Responsive UI & View Modes (Requirement 8)**: Verified responsive Cards Grid and compact Table views across desktop, tablet, and mobile breakpoints.
+  - **Deletion Confirmation Dialog (Requirement 9)**: Verified modal confirmation with explicit Cancel and Delete options and non-reversible warning.
+  - **Backend Authorization & Zero-Leakage (Requirement 10)**: Server-side authorization enforces ownership, departmental boundaries, authorized report types, and special access grants without relying on frontend hiding.
+  - **Persistence & Rehydration (Requirement 11)**: Verified that dossiers survive page refresh, login/logout, and device restarts via IndexedDB and server SSOT storage.
+  - **Loading, Empty, Error & Permission-Denied States (Requirement 12)**: Implemented and verified all 4 states in `MakerLibraryView.tsx`:
+    - Loading state with animated spinner and synchronization status message.
+    - Error state with alert icon, error message, and "Retry Query" action.
+    - Permission-denied state with shield icon, regulatory explanation under NBE Directive BSD/03/2020, and refresh action.
+    - Empty state with clear filters and create new return actions.
+  - **Automated Acceptance Suite**: Verified 100% pass across all 7 test suites in `phase25-library-core-architecture-maker-library.test.ts` and all 34 suites in `run-all-tests.ts`.
+
+---
+
 ## [30.0.0-phase30-full-integration-security-regression-acceptance] - 2026-10-02
 
 ### Added & Enhanced

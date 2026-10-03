@@ -207,6 +207,13 @@ export const MakerLibraryView: React.FC<MakerLibraryViewProps> = ({
     [currentUser]
   );
 
+  const isPermissionDenied = useMemo(() => {
+    if (currentUser.role === 'MAKER' && allowedReportKeys.length === 0) {
+      return `Access to Library dossiers is restricted. User account "${currentUser.name}" (${currentUser.department || 'Unassigned'}) has no authorized statutory return types assigned under NBE Directive BSD/03/2020 segregation of duties.`;
+    }
+    return null;
+  }, [currentUser, allowedReportKeys]);
+
   const authorizedTemplates = useMemo(
     () => templates.filter((tpl) => allowedReportKeys.includes(tpl.ReturnKey)),
     [templates, allowedReportKeys]
@@ -858,8 +865,67 @@ export const MakerLibraryView: React.FC<MakerLibraryViewProps> = ({
         </div>
       </div>
 
-      {/* 4. Main Body: Cards Grid or Table */}
-      {queryResult.items.length === 0 ? (
+      {/* 4. Main Body: Loading, Error, Permission-Denied, Empty, Cards Grid or Table */}
+      {isLoading ? (
+        /* Loading State */
+        <div className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-12 flex flex-col items-center justify-center text-center shadow-xs">
+          <div className="w-14 h-14 rounded-2xl bg-ob-blue-50 dark:bg-ob-blue-950/40 text-ob-blue-600 dark:text-ob-blue-400 flex items-center justify-center mb-3 animate-pulse">
+            <RefreshCw className="w-7 h-7 animate-spin" />
+          </div>
+          <h3 className="text-sm sm:text-base font-bold text-slate-800 dark:text-white mb-1">
+            Loading Regulatory Dossiers...
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm">
+            Synchronizing and verifying authoritative submissions against National Bank of Ethiopia regulatory records.
+          </p>
+        </div>
+      ) : errorMessage ? (
+        /* Error State */
+        <div className="flex-1 bg-white dark:bg-slate-900 border border-red-200 dark:border-red-900/60 rounded-2xl p-8 flex flex-col items-center justify-center text-center shadow-xs">
+          <div className="w-14 h-14 rounded-2xl bg-red-50 dark:bg-red-950/50 text-red-600 dark:text-red-400 flex items-center justify-center mb-3">
+            <AlertTriangle className="w-7 h-7" />
+          </div>
+          <h3 className="text-sm sm:text-base font-bold text-red-900 dark:text-red-200 mb-1">
+            Unable to Retrieve Library Dossiers
+          </h3>
+          <p className="text-xs text-red-700 dark:text-red-400 max-w-md mb-4 font-mono">
+            {errorMessage}
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setErrorMessage(null);
+              handleRefresh();
+            }}
+            className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-md cursor-pointer"
+          >
+            Retry Query
+          </button>
+        </div>
+      ) : isPermissionDenied ? (
+        /* Permission Denied State */
+        <div className="flex-1 bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900/60 rounded-2xl p-8 flex flex-col items-center justify-center text-center shadow-xs">
+          <div className="w-14 h-14 rounded-2xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 flex items-center justify-center mb-3">
+            <ShieldAlert className="w-7 h-7" />
+          </div>
+          <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white mb-1">
+            Library Access Restricted (Permission Denied)
+          </h3>
+          <p className="text-xs text-slate-600 dark:text-slate-300 max-w-md mb-3">
+            {isPermissionDenied}
+          </p>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700 max-w-md text-left mb-4">
+            <span className="font-semibold text-slate-700 dark:text-slate-300">Regulatory Segregation of Duties:</span> Under NBE Directive BSD/03/2020, Makers can only access and query regulatory returns assigned to their specific departmental unit or granted via active supervisory authorizations.
+          </div>
+          <button
+            type="button"
+            onClick={handleRefresh}
+            className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+          >
+            Refresh Authorization
+          </button>
+        </div>
+      ) : queryResult.items.length === 0 ? (
         /* Empty State */
         <div className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-8 flex flex-col items-center justify-center text-center shadow-xs">
           <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 flex items-center justify-center mb-3">
