@@ -1256,6 +1256,57 @@ app.post('/api/regulatory/submissions/:id/deliver', async (req, res) => {
   }
 });
 
+// Phase 51: Maker Bulk Submission to Checker
+app.post('/api/regulatory/submissions/bulk-submit-to-checker', (req, res) => {
+  const { submissionIds, user, bulkComment, selectedCheckerIds } = req.body;
+  const activeUser = user || DEMO_USERS[0];
+  if (!Array.isArray(submissionIds) || submissionIds.length === 0) {
+    res.status(400).json({ error: 'submissionIds array is required' });
+    return;
+  }
+  if (activeUser.role !== 'MAKER') {
+    res.status(403).json({ error: 'Only Makers can submit reports to Checker for 4-eyes review' });
+    return;
+  }
+
+  try {
+    const batchResult = submissionService.batchSubmitToChecker(
+      submissionIds,
+      activeUser,
+      bulkComment || '',
+      selectedCheckerIds
+    );
+    res.json(batchResult);
+  } catch (err: any) {
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
+  }
+});
+
+// Phase 52: Checker Bulk Submission to NBE
+app.post('/api/regulatory/submissions/bulk-submit-to-nbe', async (req, res) => {
+  const { submissionIds, user, bulkComment } = req.body;
+  const activeUser = user || DEMO_USERS.find((u) => u.role === 'CHECKER') || DEMO_USERS[0];
+  if (!Array.isArray(submissionIds) || submissionIds.length === 0) {
+    res.status(400).json({ error: 'submissionIds array is required' });
+    return;
+  }
+  if (activeUser.role !== 'CHECKER') {
+    res.status(403).json({ error: 'Only authorized Checkers can execute bulk final transmission to NBE' });
+    return;
+  }
+
+  try {
+    const batchResult = await submissionService.batchSubmitToNBE(
+      submissionIds,
+      activeUser,
+      bulkComment || ''
+    );
+    res.json(batchResult);
+  } catch (err: any) {
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
+  }
+});
+
 // Batch synchronize drafts from IndexedDB (remote NBE site visits)
 app.post('/api/regulatory/submissions/batch-sync', (req, res) => {
   const { submissions } = req.body;

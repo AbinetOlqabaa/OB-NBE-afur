@@ -4,6 +4,36 @@ All notable changes and engineering enhancements for the Oromia Bank NBE Regulat
 
 ---
 
+## [53.0.0-phase53-auditor-feature-matrix-regression-and-acceptance] - 2026-10-05
+
+### Added & Enhanced
+- **Phase 48: Auditor Dashboard Executive Metrics & Anomaly Feed (`48_AUDITOR_DASHBOARD_EXECUTIVE_METRICS_AND_ANOMALY_FEED.md`)**:
+  - Implemented 4 executive supervisory metric cards: Total Submissions, Pending Corrections, Approved Today, and Avg. Processing Time with SLA Compliance rate.
+  - Implemented Anomaly Detection Feed detecting statistical z-score surges, provision coverage drops, cross-schedule imbalances, off-hours filings, and rapid version churn.
+  - Provided severity filtering (`CRITICAL`, `HIGH`, `MEDIUM`), regulatory explanation citations, evidence reference linkage, and one-click conversion into formal audit findings.
+- **Phase 49: Auditor Workspace Drilldown & Review Toolkit (`49_AUDITOR_AUDIT_WORKSPACE_DRILLDOWN_AND_REVIEW_TOOLKIT.md`)**:
+  - Implemented comprehensive inspection shell with deep field-level values, validation indicators, historical version comparisons, and revision diffs (`getInspectionData` / `getReportAuditInspection`).
+  - Added formal audit findings management (`createFinding`, `getFindings`) with regulatory directives, financial variances (`financialVarianceETB`), and cryptographic tamper seals (`FINDING-SEAL-...`).
+- **Phase 50: Auditor Export Center Single & Bulk Formats (`50_AUDITOR_EXPORT_CENTER_SINGLE_AND_BULK_FORMATS.md`)**:
+  - Implemented multi-format exports for CSV, XLSX, JSON, PDF, and XML via `exportAuditData` and `generateAuditorExportBlob`.
+  - Added spreadsheet formula-injection protection (sanitizing `=`, `+`, `-`, `@`) and cryptographic tamper seals (`OB-SEAL-...`).
+  - Implemented flexible scoping: Work Queue, Findings, Anomaly Feed, Performance KPIs, Evidence, and Remediations in single and bulk modes.
+- **Phase 51: Maker Library Bulk Submit to Checker (`51_MAKER_LIBRARY_BULK_SUBMIT_TO_CHECKER.md`, `phase51-admin-reports-oversight-scrolling-visibility.test.ts`)**:
+  - Implemented bulk selection and multi-step modal in `MakerLibraryView` with selection summaries, pre-flight validation previews, shared audit comments, and checker assignments.
+  - Enforced server-authoritative eligibility and segregation of duties.
+  - Fixed visual display cutoff in Admin Dashboard: eliminated clipping `overflow-hidden` height locks on `REPORTS_OVERSIGHT` and `SPECIAL_ACCESS` tab containers, added `pb-8` bottom padding to `DataQualityHeatmap`, and `pb-6` bottom padding to `RegulatoryCalendarCard`.
+  - Integrated standalone `MaximizeButton` and `MaximizedViewModal` across embedded visual display maps.
+- **Phase 52: Checker Library Bulk Submit to NBE Gateway (`52_CHECKER_LIBRARY_BULK_SUBMIT_TO_NBE.md`)**:
+  - Implemented controlled bulk final-submission workflow in `submissionService.batchSubmitToNBE` for approved returns.
+  - Enforced 4-eyes governance and segregation of duties (blocking unauthorized Maker direct NBE transmission).
+  - Integrated canonical NBE adapter, batch IDs (`BATCH_NBE_...`), digital receipt generation (`NBE-REC-...`), and delivery snapshots.
+- **Phase 53: Auditor Feature Matrix, Regression & Acceptance (`53_AUDITOR_FEATURE_MATRIX_REGRESSION_AND_ACCEPTANCE.md`, `phase52-53-checker-bulk-nbe-and-auditor-matrix-acceptance.test.ts`)**:
+  - Verified 100% test execution across all 53 phases in `src/tests/run-all-tests.ts`.
+  - Validated responsive layout contracts across all 9 canonical viewports (320px to 1920px) with >=44px touch targets.
+  - Truthfully documented physical device statuses (`HARDWARE_PENDING` for physical optical sensors/FIDO2 tokens, `DEVICE-DEPENDENT` for Samsung Android tablet on-glass touch execution, `VERIFIED` for software pipelines and layout contracts).
+
+---
+
 ## [47.0.0-phase47-dashboard-component-visibility-responsive-viewing-audit] - 2026-10-05
 
 ### Added & Enhanced

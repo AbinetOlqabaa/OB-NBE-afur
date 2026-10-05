@@ -170,6 +170,7 @@ export interface ReportSubmission {
   dataSnapshot?: Record<string, string | number>;
   dynamicRowsSnapshot?: Record<number, DynamicRowRecord[]>;
   historicalSnapshots?: SubmissionSnapshot[];
+  snapshots?: SubmissionSnapshot[];
   structuralHash?: string;
   integrityHash?: string;
   revisionHistory?: Array<{
@@ -449,6 +450,8 @@ export interface AuditFinding {
   regulatoryReference?: string;
   affectedField?: string;
   financialVariance?: number;
+  financialVarianceETB?: number;
+  tamperHash?: string;
   auditorId: string;
   auditorName: string;
   createdAt: string;
@@ -575,6 +578,9 @@ export interface RegulatoryAnomalyItem {
   patternLabel: string;
   title: string;
   description: string;
+  explanation?: string;
+  ruleCode?: string;
+  evidenceRef?: string;
   affectedField: string;
   expectedRange: string;
   observedValue: string;
@@ -603,6 +609,7 @@ export interface BatchSubmissionItemResult {
   newStatus: SubmissionStatus;
   success: boolean;
   nbeReceiptNumber?: string;
+  nbeReferenceNumber?: string;
   error?: string;
 }
 
@@ -615,8 +622,10 @@ export interface BatchSubmissionResult {
   bulkComment: string;
   timestamp: string;
   totalRequested: number;
+  totalProcessed?: number;
   succeededCount: number;
   failedCount: number;
+  success?: boolean;
   results: BatchSubmissionItemResult[];
   updatedSubmissions: ReportSubmission[];
 }

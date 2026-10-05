@@ -19,6 +19,7 @@ import type {
   AnomalyStatus,
   AuditorExportFormat,
   AuditorExportScope,
+  ReportSubmission,
 } from '../types/regulatory.ts';
 import { submissionService } from './submissionService.ts';
 import { auditService } from './auditService.ts';
@@ -330,7 +331,13 @@ class AuditorServiceClass {
   }): AuditWorkQueueItem[] {
     const allReports = getAllReports();
     const activeSubmissions = submissionService.getAllSubmissions();
-    const subMap = new Map(activeSubmissions.map((s) => [s.reportKey, s]));
+    const subMap = new Map<string, ReportSubmission>();
+    activeSubmissions.forEach((s) => {
+      const existing = subMap.get(s.reportKey);
+      if (!existing || new Date(s.updatedAt || 0).getTime() >= new Date(existing.updatedAt || 0).getTime()) {
+        subMap.set(s.reportKey, s);
+      }
+    });
 
     const items: AuditWorkQueueItem[] = allReports.map((report) => {
       const sub = subMap.get(report.ReturnKey);
@@ -553,7 +560,12 @@ class AuditorServiceClass {
       }
     });
 
-    const combined = [...this.anomalies, ...dynamicAnomalies];
+    const combined = [...this.anomalies, ...dynamicAnomalies].map((item) => ({
+      ...item,
+      ruleCode: item.ruleCode || `ANOM_RULE_${item.patternType || 'GEN_01'}`,
+      explanation: item.explanation || item.description,
+      evidenceRef: item.evidenceRef || `NBE-BSD-DIR-${item.reportKey}-${item.affectedField || 'VAL'}`,
+    }));
 
     return combined.filter((item) => {
       if (filters?.severity && filters.severity !== 'ALL' && item.severity !== filters.severity) return false;
@@ -717,6 +729,7 @@ class AuditorServiceClass {
     return {
       reportKey,
       reportDefinition: def,
+      reportMetadata: def,
       submission: sub,
       values: sub?.values || def?.ReturnItemsList.reduce((acc, f) => ({ ...acc, [f.Code]: f.Value ?? 0 }), {}) || {},
       dynamicRows: sub?.dynamicRows || {},
@@ -726,6 +739,10 @@ class AuditorServiceClass {
       snapshots: (sub as any)?.historicalSnapshots || (sub as any)?.snapshots || [],
       comments: sub?.comments || [],
     };
+  }
+
+  public getInspectionData(reportKey: string, submissionId?: string) {
+    return this.getReportAuditInspection(reportKey, submissionId);
   }
 
   // --- 3. Audit Findings Management ---
@@ -748,11 +765,30 @@ class AuditorServiceClass {
   }
 
   public createFinding(
-    finding: Omit<AuditFinding, 'id' | 'createdAt' | 'updatedAt'>
+    finding: Partial<AuditFinding> & {
+      submissionId: string;
+      reportKey: string;
+      title: string;
+      description: string;
+      severity: AuditFindingSeverity;
+      auditorId: string;
+      auditorName: string;
+    }
   ): AuditFinding {
+    const findingId = `FIND-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+    const tamperHash = `FINDING-SEAL-${Math.random().toString(36).substring(2, 10).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+    const def = getReportDefinition(finding.reportKey);
+    const department = finding.department || def?.department || 'Credit Operations & Portfolio Management';
+    const finVar = finding.financialVarianceETB ?? finding.financialVariance ?? 0;
+
     const newFinding: AuditFinding = {
       ...finding,
-      id: `FIND-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+      id: findingId,
+      department,
+      status: finding.status || 'OPEN',
+      financialVariance: finVar,
+      financialVarianceETB: finVar,
+      tamperHash,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -1354,7 +1390,7 @@ class AuditorServiceClass {
     const actor = params.actorName || 'Worku Alemu (AUDITOR)';
     const timestamp = new Date().toISOString();
     const dateSlug = timestamp.slice(0, 10).replace(/-/g, '');
-    const seal = `OB-AUD-${params.mode}-${params.format}-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+    const seal = `OB-SEAL-${params.mode}-${params.format}-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
 
     const perfMetrics = this.getPerformanceOverviewMetrics();
     const kpiSummary = this.getKpiSummary();
@@ -1365,9 +1401,19 @@ class AuditorServiceClass {
 
     if (params.scope === 'WORK_QUEUE') {
       const queue = this.getWorkQueue();
-      const filtered = sel
-        ? queue.filter((q) => sel.has(q.reportKey) || sel.has(q.submissionId))
-        : queue;
+      let filtered = queue;
+      if (sel) {
+        const selectedSubs = params.selectedIds
+          ? params.selectedIds.map((id) => submissionService.getById(id)).filter(Boolean)
+          : [];
+        const relatedReportKeys = new Set(selectedSubs.map((s) => s!.reportKey));
+        filtered = queue.filter(
+          (q) => sel.has(q.reportKey) || sel.has(q.submissionId) || relatedReportKeys.has(q.reportKey)
+        );
+        if (params.mode === 'SINGLE' && filtered.length > 1) {
+          filtered = filtered.slice(0, 1);
+        }
+      }
       rows = filtered.map((q) => ({
         ReportKey: q.reportKey,
         SubmissionId: q.submissionId,

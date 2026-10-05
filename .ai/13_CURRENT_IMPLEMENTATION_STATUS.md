@@ -851,6 +851,49 @@ Phase 1 of the visual design system and color standardization cycle has been com
   - `POST /api/nbe-simulator/reports/:key/transmit` (Executes simulated report submission and generates digital receipt)
   - `GET /api/config/nbe-endpoints` & `GET /api/config/nbe-auth-profiles`
 
+### Phase 47: Dashboard Component Visibility, Contained Scrolling & Full-View Audit
+- **Status**: VERIFIED & ACCEPTED
+- **Page-Boundary Contract**: Eliminated rigid root `overflow-hidden` height-locks; enabled natural parent page scrolling on `<main>` with contained child overflow.
+- **Contained Scrolling**: Wide multi-column tables wrapped in `overflow-x-auto min-w-[850px] touch-scroll-x`.
+- **Maximized View Architecture**: Reusable `MaximizedViewModal` and `MaximizeButton` components integrated across dense tables, heatmaps, and analytics.
+- **Bottom Cutoff Resolution**: Removed clipping `overflow-hidden` from `REPORTS_OVERSIGHT` and `SPECIAL_ACCESS` containers in `AdminDashboard`; added `pb-8` to `DataQualityHeatmap` and `pb-6` to `RegulatoryCalendarCard`.
+- **Responsive Viewports**: All 9 canonical viewports (320×568 up to 1920×1080) verified with >=44px touch targets.
+
+### Phase 48: Auditor Dashboard Executive Metrics & Anomaly Feed
+- **Status**: VERIFIED & ACCEPTED
+- **Executive Metric Cards**: Total Submissions, Pending Corrections, Approved Today, Avg Processing Time, and SLA Compliance Rate.
+- **Anomaly Detection Feed**: Detects statistical spikes, off-hours submissions, version churn, cross-schedule imbalances, and provision coverage drops.
+- **Supervisory Controls**: Anomaly severity filtering (`CRITICAL`, `HIGH`, `MEDIUM`), regulatory explanation citations, evidence reference linkage, and conversion into formal audit findings.
+
+### Phase 49: Auditor Audit Workspace Drilldown & Review Toolkit
+- **Status**: VERIFIED & ACCEPTED
+- **Deep Inspection Shell**: Complete field-level values, validation indicators, historical version comparisons, and revision diffs via `getInspectionData` / `getReportAuditInspection`.
+- **Audit Findings Lifecycle**: Create, edit, and track findings with regulatory references, financial variances (`financialVarianceETB`), and cryptographic tamper hashes (`FINDING-SEAL-...`).
+- **Evidence Vault Integration**: Cryptographic SHA-256 evidence hashing and immutable audit event linkage.
+
+### Phase 50: Auditor Multi-Format Export Center
+- **Status**: VERIFIED & ACCEPTED
+- **Supported Formats**: CSV, XLSX, JSON, PDF, XML.
+- **Security & Integrity**: Spreadsheet formula injection protection (neutralizing `=`, `+`, `-`, `@`), and cryptographic audit packaging (`OB-SEAL-...`).
+- **Scopes & Modes**: Single-record extraction and bulk dossier exports across Work Queue, Findings, Anomaly Feed, Performance KPIs, Evidence, and Remediations.
+
+### Phase 51: Maker Library Bulk Submission to Checker
+- **Status**: VERIFIED & ACCEPTED
+- **Eligibility Governance**: Server-authoritative state checks (`DRAFT`, `IN_PROGRESS`, `RETURNED`); exclusion of locked/approved returns.
+- **Multi-Step Modal Flow**: Selection summary, validation preview, shared audit preparation comment, checker assignment, and explicit confirmation.
+- **Atomic & Partial-Success Semantics**: Row-level outcomes with optimistic concurrency verification (`expectedVersion`).
+
+### Phase 52: Checker Library Bulk Submit to NBE Gateway
+- **Status**: VERIFIED & ACCEPTED
+- **4-Eyes Governance**: Enforces dual-control; makers blocked from direct NBE submission (`SEGREGATION_OF_DUTIES_VIOLATION`).
+- **NBE Transmission Engine**: Leverages canonical `nbeAdapter`, unique batch ID generation (`BATCH_NBE_...`), official digital receipt persistence (`NBE-REC-...`), and delivery snapshot creation.
+- **Row-Level Outcome Reporting**: Downloadable audit reports and real-time SSOT event broadcasting.
+
+### Phase 53: Auditor Feature Matrix, Regression & Acceptance
+- **Status**: VERIFIED & ACCEPTED
+- **Acceptance Gate**: 100% test pass across all 53 phases in `run-all-tests.ts`.
+- **Truthful Hardware Reporting**: Physical optical scanners and FIDO2 keys marked `HARDWARE_PENDING`; Samsung tablet on-glass execution marked `DEVICE-DEPENDENT`; software pipelines, encryption, and layout contracts marked `VERIFIED`.
+
 
 
 

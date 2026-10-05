@@ -2599,8 +2599,10 @@ class SubmissionServiceClass {
       bulkComment,
       timestamp,
       totalRequested: submissionIds.length,
+      totalProcessed: results.length,
       succeededCount,
       failedCount,
+      success: failedCount === 0,
       results,
       updatedSubmissions,
     };
@@ -2705,6 +2707,7 @@ class SubmissionServiceClass {
           updatedAt: new Date().toISOString(),
           deliveryAttempts: [...activeSub.deliveryAttempts, deliveryResult.attempt],
           historicalSnapshots: [...(activeSub.historicalSnapshots || []), deliverySnapshot],
+          snapshots: [...(activeSub.historicalSnapshots || []), deliverySnapshot],
           comments: [
             ...activeSub.comments,
             {
@@ -2732,6 +2735,7 @@ class SubmissionServiceClass {
           newStatus: finalStatus,
           success: deliveryResult.success,
           nbeReceiptNumber: receiptNum,
+          nbeReferenceNumber: receiptNum,
           error: deliveryResult.error,
         });
       } catch (err: any) {
@@ -2787,8 +2791,10 @@ class SubmissionServiceClass {
       bulkComment,
       timestamp,
       totalRequested: submissionIds.length,
+      totalProcessed: results.length,
       succeededCount,
       failedCount,
+      success: failedCount === 0,
       results,
       updatedSubmissions,
     };

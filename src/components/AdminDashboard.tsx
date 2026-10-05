@@ -1341,7 +1341,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* 4. Tab Content 1: REPORTS OVERSIGHT CENTER */}
       {activeSubTab === 'REPORTS_OVERSIGHT' && (
-        <div className="flex-1 min-h-0 overflow-hidden flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs transition-colors">
+        <div className="flex-1 min-h-0 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs transition-colors">
           <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/60 flex flex-wrap items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
@@ -1559,7 +1559,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* 5. Tab Content 2: SPECIAL ACCESS & DELEGATION MANAGER */}
       {activeSubTab === 'SPECIAL_ACCESS' && (
-        <div className="flex-1 min-h-0 overflow-hidden flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs transition-colors">
+        <div className="flex-1 min-h-0 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs transition-colors">
           <div className="px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/60 flex items-center justify-between shrink-0">
             <div>
               <h3 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
@@ -4209,6 +4209,49 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
+                {/* Visual Display Toggles inside Maximized View */}
+                <div className="flex items-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setOversightVisualView(oversightVisualView === 'CALENDAR' ? 'NONE' : 'CALENDAR')}
+                    className={`min-h-[34px] px-2.5 py-1 text-xs font-bold rounded transition-colors flex items-center gap-1 cursor-pointer touch-manipulation ${
+                      oversightVisualView === 'CALENDAR'
+                        ? 'bg-ob-indigo-600 text-white shadow-2xs'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-ob-indigo-600'
+                    }`}
+                    title="Toggle Regulatory Calendar visual timeline map"
+                  >
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>Calendar</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOversightVisualView(oversightVisualView === 'HEATMAP' ? 'NONE' : 'HEATMAP')}
+                    className={`min-h-[34px] px-2.5 py-1 text-xs font-bold rounded transition-colors flex items-center gap-1 cursor-pointer touch-manipulation ${
+                      oversightVisualView === 'HEATMAP'
+                        ? 'bg-rose-600 text-white shadow-2xs'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-rose-600'
+                    }`}
+                    title="Toggle Data Quality Heatmap visual distribution map"
+                  >
+                    <Flame className="w-3.5 h-3.5" />
+                    <span>Heatmap</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOversightVisualView(oversightVisualView === 'ANALYTICS' ? 'NONE' : 'ANALYTICS')}
+                    className={`min-h-[34px] px-2.5 py-1 text-xs font-bold rounded transition-colors flex items-center gap-1 cursor-pointer touch-manipulation ${
+                      oversightVisualView === 'ANALYTICS'
+                        ? 'bg-purple-600 text-white shadow-2xs'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-purple-600'
+                    }`}
+                    title="Toggle Regulatory Performance Analytics charts"
+                  >
+                    <BarChart3 className="w-3.5 h-3.5" />
+                    <span>Analytics</span>
+                  </button>
+                </div>
+
                 <select
                   value={departmentFilter}
                   onChange={(e) => {
@@ -4246,6 +4289,44 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </span>
               </div>
             </div>
+
+            {/* Visual Displays in Full View (Unclipped, fluid responsive scrolling) */}
+            {oversightVisualView === 'CALENDAR' && (
+              <div className="p-3 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/40 dark:bg-slate-900/40 overflow-y-auto touch-scroll-y">
+                <RegulatoryCalendarCard
+                  currentUser={currentUser}
+                  onInspectSubmission={(sub) => setInspectingSub(sub)}
+                  onViewAllSubmissions={() => setOversightVisualView('NONE')}
+                />
+              </div>
+            )}
+
+            {oversightVisualView === 'HEATMAP' && (
+              <div className="p-3 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/40 dark:bg-slate-900/40 overflow-y-auto touch-scroll-y">
+                <DataQualityHeatmap
+                  currentUser={currentUser}
+                  onInspectReport={(rk) => {
+                    const sub = submissions.find((s) => s.reportKey === rk);
+                    if (sub) setInspectingSub(sub);
+                  }}
+                  onNavigateToSubmissions={() => setOversightVisualView('NONE')}
+                />
+              </div>
+            )}
+
+            {oversightVisualView === 'ANALYTICS' && (
+              <div className="p-3 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/40 dark:bg-slate-900/40 overflow-y-auto touch-scroll-y">
+                <ReportingPerformanceAnalytics
+                  currentUser={currentUser}
+                  compact={false}
+                  onViewAllSubmissions={() => setOversightVisualView('NONE')}
+                  onOpenReport={(rk) => {
+                    const sub = submissions.find((s) => s.reportKey === rk);
+                    if (sub) setInspectingSub(sub);
+                  }}
+                />
+              </div>
+            )}
 
             {/* Maximized Table */}
             <div className="overflow-x-auto min-w-full touch-scroll-x border border-slate-200 dark:border-slate-800 rounded-xl">

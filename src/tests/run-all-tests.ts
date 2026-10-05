@@ -392,6 +392,7 @@ import { runAuditor12MonthHistoricalTrendTests } from './auditor-12month-histori
 import { runPhase47VisibilityAndResponsiveAudit } from './phase47-dashboard-component-visibility-responsive-viewing-audit.test.ts';
 import { runPhase48Phase49Phase50Tests } from './phase48-49-50-auditor-batch-submission.test.ts';
 import { runPhase51ReportsOversightAudit } from './phase51-admin-reports-oversight-scrolling-visibility.test.ts';
+import { runPhase52CheckerBulkNbeAndPhase53AuditorMatrixAcceptanceTests } from './phase52-53-checker-bulk-nbe-and-auditor-matrix-acceptance.test.ts';
 
 async function runFullApplicationTestSuite() {
   runRegulatoryCoreTests();
@@ -454,6 +455,7 @@ async function runFullApplicationTestSuite() {
   await runPhase47VisibilityAndResponsiveAudit();
   await runPhase48Phase49Phase50Tests();
   await runPhase51ReportsOversightAudit();
+  await runPhase52CheckerBulkNbeAndPhase53AuditorMatrixAcceptanceTests();
 
   console.log('\n========================================================================');
   console.log('✅ ALL COMPREHENSIVE AUTOMATED TEST SUITES PASSED CLEANLY (100% SUCCESS)');
