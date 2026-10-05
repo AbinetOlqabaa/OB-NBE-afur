@@ -35,6 +35,9 @@ import { ValidationRemediationService } from './src/services/validationRemediati
 import { sessionService } from './src/services/sessionService.ts';
 import { nbeReportPackageService } from './src/services/nbeReportPackageNormalizer.ts';
 import { nbeEndpointRegistry } from './src/services/nbeEndpointRegistry.ts';
+import { notificationService } from './src/services/notificationService.ts';
+import { reportingAnalyticsService } from './src/services/reportingAnalyticsService.ts';
+import type { UserSession } from './src/types/regulatory.ts';
 
 dotenv.config();
 
@@ -42,7 +45,41 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = parseInt(process.env.PORT || '3000', 10);
+
+function resolveServerPort(): number {
+  if (process.env.APP_PORT) {
+    const parsed = parseInt(process.env.APP_PORT, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+
+  const portArgIndex = process.argv.indexOf('--port');
+  if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
+    const parsed = parseInt(process.argv[portArgIndex + 1], 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+
+  // If running inside the AI Studio development container where Nginx is on port 8080:
+  // (In that dev container, Nginx reverse-proxies from 8080 to 3000, so Node must bind to 3000)
+  if (process.env.NGINX_PORT || process.env.CONTROL_PLANE_PORT) {
+    const devPort = process.env.DEFAULT_APP_PORT ? parseInt(process.env.DEFAULT_APP_PORT, 10) : 3000;
+    return !isNaN(devPort) && devPort > 0 ? devPort : 3000;
+  }
+
+  // In production Cloud Run deployment (where there is no Nginx and Cloud Run probes $PORT directly):
+  if (process.env.PORT) {
+    const parsed = parseInt(process.env.PORT, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+
+  if (process.env.DEFAULT_APP_PORT) {
+    const parsed = parseInt(process.env.DEFAULT_APP_PORT, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+
+  return 8080;
+}
+
+const PORT = resolveServerPort();
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -684,18 +721,68 @@ app.get('/api/governance/proposals/:id/explain', (req, res) => {
   }
 });
 
-// Get user notifications
-app.get('/api/governance/notifications', (req, res) => {
-  const userId = req.query.userId as string;
-  if (userId) {
-    res.json(configurationGovernanceService.getNotificationsForUser(userId));
-  } else {
-    res.json(configurationGovernanceService.getAllNotifications());
+// Helper to resolve requesting user for notifications
+function resolveRequestingUser(req: express.Request) {
+  const userId = (req.query.userId || req.headers['x-actor-id'] || req.body?.userId) as string;
+  const userEmail = (req.query.userEmail || req.headers['x-actor-email'] || req.body?.userEmail) as string;
+  const headerRole = (req.headers['x-actor-role'] || req.query.role || req.body?.role) as string;
+  const headerDept = (req.headers['x-actor-department'] || req.query.department || req.body?.department) as string;
+
+  let user: any = null;
+  if (userEmail) {
+    user = userService.getByEmail(userEmail);
   }
+  if (!user && userId) {
+    user = userService.getById(userId);
+  }
+  if (!user) {
+    user = {
+      id: userId || 'anonymous',
+      email: userEmail || '',
+      role: headerRole || 'MAKER',
+      department: headerDept || 'Credit Operations & Portfolio Management',
+      allowedReportKeys: [],
+    };
+  } else {
+    if (headerRole) user.role = headerRole;
+    if (headerDept) user.department = headerDept;
+  }
+  if (!user.allowedReportKeys || user.allowedReportKeys.length === 0) {
+    user.allowedReportKeys = userService.getAllowedReportKeysForUser(user);
+  }
+  return user;
+}
+
+// Authoritative Notification Center API (Phase 35)
+app.get('/api/notifications', (req, res) => {
+  const user = resolveRequestingUser(req);
+  const result = notificationService.getNotificationsForUser(user);
+  res.json(result);
+});
+
+// Mark single notification as read
+app.post('/api/notifications/:id/read', (req, res) => {
+  const success = notificationService.markAsRead(req.params.id);
+  res.json({ success });
+});
+
+// Mark all notifications as read for current user
+app.post('/api/notifications/read-all', (req, res) => {
+  const user = resolveRequestingUser(req);
+  const count = notificationService.markAllAsReadForUser(user);
+  res.json({ success: true, count });
+});
+
+// Get user governance notifications (backward compatibility with server-side filtering)
+app.get('/api/governance/notifications', (req, res) => {
+  const user = resolveRequestingUser(req);
+  const result = notificationService.getNotificationsForUser(user);
+  res.json(result.notifications);
 });
 
 // Mark notification as read
 app.post('/api/governance/notifications/:id/read', (req, res) => {
+  notificationService.markAsRead(req.params.id);
   configurationGovernanceService.markNotificationAsRead(req.params.id);
   res.json({ success: true });
 });
@@ -791,6 +878,42 @@ app.get('/api/regulatory/library', (req, res) => {
   });
 
   res.json(result);
+});
+
+// Reporting Performance Analytics Endpoint (Dual-Control & Submission Trends)
+app.get('/api/analytics/reporting-performance', (req, res) => {
+  const { timeRangeDays, department, frequency } = req.query as any;
+  try {
+    const analytics = reportingAnalyticsService.getAnalytics({
+      timeRangeDays: timeRangeDays ? parseInt(timeRangeDays, 10) : 30,
+      department: department ? String(department) : 'ALL',
+      frequency: frequency ? String(frequency) : 'ALL',
+    });
+    res.json(analytics);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Reporting Performance Analytics CSV Export
+app.get('/api/analytics/reporting-performance/export', (req, res) => {
+  const { timeRangeDays, department, frequency } = req.query as any;
+  try {
+    const analytics = reportingAnalyticsService.getAnalytics({
+      timeRangeDays: timeRangeDays ? parseInt(timeRangeDays, 10) : 30,
+      department: department ? String(department) : 'ALL',
+      frequency: frequency ? String(frequency) : 'ALL',
+    });
+    const csvContent = reportingAnalyticsService.generateCsvExport(analytics);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="oromia-bank-reporting-performance-analytics-${Date.now()}.csv"`
+    );
+    res.send(csvContent);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Delete Draft Submission Endpoint (Requirements 5, 6, 9, 10)
@@ -1118,17 +1241,60 @@ app.post('/api/regulatory/validate-payload', (req, res) => {
   }
 });
 
-// Maker submit to Checker
+// Phase 36: Server-side query for eligible Checkers for a given report
+app.get('/api/regulatory/reports/:reportKey/eligible-checkers', (req, res) => {
+  const { makerId, department } = req.query;
+  const makerUser = makerId ? userService.getById(String(makerId)) : DEMO_USERS[0];
+  const userSession: UserSession = makerUser
+    ? {
+        id: makerUser.id,
+        name: makerUser.name,
+        email: makerUser.email,
+        role: makerUser.role,
+        institutionCode: makerUser.institutionCode,
+        department: (department as string) || makerUser.department,
+        employeeId: makerUser.employeeId,
+        specialAccessGrants: makerUser.specialAccessGrants || [],
+      }
+    : DEMO_USERS[0];
+
+  try {
+    const eligible = effectiveAccessEngine.getEligibleCheckersForReport(req.params.reportKey, userSession);
+    res.json({
+      reportKey: req.params.reportKey,
+      department: userSession.department,
+      count: eligible.length,
+      checkers: eligible,
+    });
+  } catch (err: any) {
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
+  }
+});
+
+// Maker submit to Checker (Phase 36: supports selectedCheckerIds)
 app.post('/api/regulatory/submissions/:id/submit', (req, res) => {
-  const { user, comment, expectedVersion } = req.body;
+  const { user, comment, expectedVersion, selectedCheckerIds } = req.body;
   const activeUser = user || DEMO_USERS[0];
   try {
     const updated = submissionService.submitToChecker(
       req.params.id,
       activeUser,
       comment,
-      expectedVersion !== undefined ? Number(expectedVersion) : undefined
+      expectedVersion !== undefined ? Number(expectedVersion) : undefined,
+      Array.isArray(selectedCheckerIds) ? selectedCheckerIds : undefined
     );
+    res.json(updated);
+  } catch (err: any) {
+    res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
+  }
+});
+
+// Phase 36: Checker accepts/opens review
+app.post('/api/regulatory/submissions/:id/accept-review', (req, res) => {
+  const { user } = req.body;
+  const activeUser = user || DEMO_USERS[1];
+  try {
+    const updated = submissionService.acceptReview(req.params.id, activeUser);
     res.json(updated);
   } catch (err: any) {
     res.status(getAuthOrClientStatusCode(err.message)).json({ error: err.message });
@@ -2632,6 +2798,14 @@ app.post('/api/nbe-simulator/reports/:key/transmit', async (req, res) => {
 });
 
 app.get('/api/nbe-simulator/submissions', async (req, res) => {
+  const actorRole = (req.headers['x-actor-role'] || req.query.role || 'ADMIN') as string;
+  if (actorRole && actorRole !== 'ADMIN') {
+    res.status(403).json({
+      error: 'Forbidden: NBE Simulator access is strictly restricted to Administrators.',
+      code: 'UNAUTHORIZED_SIMULATOR_ACCESS',
+    });
+    return;
+  }
   const { page, page_size, limit } = req.query as any;
   let submissions: any[] = [];
   try {
@@ -2654,6 +2828,14 @@ app.get('/api/nbe-simulator/submissions', async (req, res) => {
 });
 
 app.get('/api/nbe-simulator/logs', async (req, res) => {
+  const actorRole = (req.headers['x-actor-role'] || req.query.role || 'ADMIN') as string;
+  if (actorRole && actorRole !== 'ADMIN') {
+    res.status(403).json({
+      error: 'Forbidden: NBE Simulator access is strictly restricted to Administrators.',
+      code: 'UNAUTHORIZED_SIMULATOR_ACCESS',
+    });
+    return;
+  }
   const { page, page_size, limit } = req.query as any;
   let logs: any[] = [];
   try {
@@ -2725,6 +2907,14 @@ app.get('/api/nbe-simulator/gateway-health', async (req, res) => {
 });
 
 app.get('/api/nbe-simulator/scenario', async (req, res) => {
+  const actorRole = (req.headers['x-actor-role'] || req.query.role || 'ADMIN') as string;
+  if (actorRole && actorRole !== 'ADMIN') {
+    res.status(403).json({
+      error: 'Forbidden: NBE Simulator access is strictly restricted to Administrators.',
+      code: 'UNAUTHORIZED_SIMULATOR_ACCESS',
+    });
+    return;
+  }
   try {
     const response = await fetch(`${DJANGO_SIMULATOR_URL}/scenario`);
     if (response.ok) {
@@ -2739,6 +2929,14 @@ app.get('/api/nbe-simulator/scenario', async (req, res) => {
 });
 
 app.post('/api/nbe-simulator/scenario', async (req, res) => {
+  const actorRole = (req.headers['x-actor-role'] || req.query.role || req.body?.role || 'ADMIN') as string;
+  if (actorRole && actorRole !== 'ADMIN') {
+    res.status(403).json({
+      error: 'Forbidden: NBE Simulator access is strictly restricted to Administrators.',
+      code: 'UNAUTHORIZED_SIMULATOR_ACCESS',
+    });
+    return;
+  }
   const updatedLocal = nbeSimulator.setScenario(req.body);
   try {
     const response = await fetch(`${DJANGO_SIMULATOR_URL}/scenario`, {
@@ -3037,9 +3235,7 @@ const healthHandler = (_req: express.Request, res: express.Response) => {
     timestamp: new Date().toISOString(),
   });
 };
-app.get('/api/health', healthHandler);
-app.get('/health', healthHandler);
-app.get('/healthz', healthHandler);
+app.get(['/api/health', '/health', '/healthz', '/_ah/health', '/healthcheck'], healthHandler);
 
 // -------------------------------------------------------------
 // DEV / PROD SERVER BOOTSTRAP
@@ -3103,12 +3299,84 @@ async function startServer() {
     app.use(vite.middlewares);
   }
 
-  const server = http.createServer(app);
-  realtimeSsotEngine.attachServer(server, '/ws/ssot');
+  const activeServers: http.Server[] = [];
 
-  server.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Oromia Bank NBE Platform] Server listening on port ${PORT}`);
-  });
+  const bindPort = (port: number): Promise<http.Server | null> => {
+    return new Promise((resolve) => {
+      const srv = http.createServer(app);
+      srv.on('error', (err: any) => {
+        console.warn(`[Server Port Notice] Port ${port} bind skipped (${err.code || err.message}).`);
+        resolve(null);
+      });
+      srv.listen(port, '0.0.0.0', () => {
+        console.log(`[Oromia Bank NBE Platform] Server listening on port ${port}`);
+        realtimeSsotEngine.attachServer(srv, '/ws/ssot');
+        resolve(srv);
+      });
+    });
+  };
+
+  // Determine candidate ports to bind
+  // 1. If explicit APP_PORT is given, prioritize it
+  // 2. In Cloud Run or standard container, process.env.PORT is usually 8080
+  // 3. Port 3000 is the required app port for AI Studio Nginx proxy and iframe preview
+  const candidatePorts: number[] = [];
+  if (process.env.APP_PORT) {
+    const p = parseInt(process.env.APP_PORT, 10);
+    if (!isNaN(p) && p > 0 && !candidatePorts.includes(p)) candidatePorts.push(p);
+  }
+  if (process.env.PORT) {
+    const p = parseInt(process.env.PORT, 10);
+    if (!isNaN(p) && p > 0 && !candidatePorts.includes(p)) candidatePorts.push(p);
+  }
+  if (!candidatePorts.includes(3000)) {
+    candidatePorts.push(3000);
+  }
+  if (!candidatePorts.includes(8080)) {
+    candidatePorts.push(8080);
+  }
+
+  // Attempt binding all candidate ports concurrently
+  for (const p of candidatePorts) {
+    const srv = await bindPort(p);
+    if (srv) {
+      activeServers.push(srv);
+    }
+  }
+
+  if (activeServers.length === 0) {
+    throw new Error(`Failed to bind server on any candidate ports: [${candidatePorts.join(', ')}]`);
+  }
+
+  // Graceful shutdown handling for Cloud Run container lifecycle
+  let isShuttingDown = false;
+  const handleShutdown = (signal: string) => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    console.log(`[Server] Received ${signal}, closing active HTTP servers (${activeServers.length})...`);
+    let remaining = activeServers.length;
+    if (remaining === 0) {
+      process.exit(0);
+    }
+    for (const srv of activeServers) {
+      srv.close(() => {
+        remaining--;
+        if (remaining <= 0) {
+          console.log('[Server] All HTTP servers closed cleanly.');
+          process.exit(0);
+        }
+      });
+    }
+    setTimeout(() => {
+      process.exit(0);
+    }, 5000).unref();
+  };
+
+  process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+  process.on('SIGINT', () => handleShutdown('SIGINT'));
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error('[Server Fatal Error on Startup]', err);
+  process.exit(1);
+});

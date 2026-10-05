@@ -132,10 +132,10 @@ export class TemplateInitializationService {
     for (const item of template.ReturnItemsList) {
       if (formulaTargets.has(item.Code)) continue;
       const rawItem = item as any;
-      const isStructural = rawItem.isStructuralDefault === true || item.defaultValue !== undefined;
+      const isStructural = rawItem.isStructuralDefault === true || rawItem.defaultValue !== undefined;
       const val = values[item.Code];
       if (this.isFieldSupplied(val)) {
-        if (isStructural && val === (rawItem.defaultValue ?? item.defaultValue)) {
+        if (isStructural && val === rawItem.defaultValue) {
           continue;
         }
         return true;
