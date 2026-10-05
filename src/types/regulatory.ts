@@ -550,7 +550,17 @@ export type AnomalyPatternType =
   | 'RAPID_VERSION_CHURN'
   | 'CROSS_SCHEDULE_IMBALANCE'
   | 'PROVISION_COVERAGE_DROP'
-  | 'SLA_BOTTLENECK';
+  | 'SLA_BOTTLENECK'
+  | 'SUDDEN_VALUE_CHANGE'
+  | 'UNUSUAL_SIGN_REVERSAL'
+  | 'UNEXPECTED_ZERO_OR_BLANK'
+  | 'REGULATORY_RATIO_OUT_OF_BOUNDS'
+  | 'REPEATED_CORRECTION_CYCLES'
+  | 'SUBMISSION_TIMING_ANOMALY'
+  | 'DUPLICATE_SIGNATURE'
+  | 'UNEXPECTED_DEPARTMENT_REPORT'
+  | 'CALCULATED_VS_REPORTED_VARIANCE'
+  | 'NBE_REJECTION_PATTERN';
 
 export type AnomalyStatus = 'ACTIVE' | 'INVESTIGATING' | 'CONVERTED_TO_FINDING' | 'DISMISSED';
 
@@ -610,5 +620,19 @@ export interface BatchSubmissionResult {
   results: BatchSubmissionItemResult[];
   updatedSubmissions: ReportSubmission[];
 }
+
+export interface EligibleCheckerSummary {
+  id: string;
+  name: string;
+  email: string;
+  department: string;
+  employeeId: string;
+  status: string;
+  isAvailable: boolean;
+  authorizationReason: string;
+  authorizedVia?: string;
+  specialAccessGrant?: SpecialAccessGrant;
+}
+
 
 

@@ -2228,6 +2228,129 @@ class SubmissionServiceClass {
   }
 
   /**
+   * Phase 36: Checker open/claim review - records event and notifies Maker that review is underway.
+   */
+  public openReview(id: string, user: UserSession): ReportSubmission {
+    const sub = this.submissions.get(id);
+    if (!sub) throw new Error(`Submission not found: ${id}`);
+
+    const evalResult = effectiveAccessEngine.evaluateAccess(user, sub.reportKey, 'REVIEW', sub);
+    if (!evalResult.allowed) {
+      throw new Error(`Review denied: ${evalResult.reason}`);
+    }
+
+    auditService.log({
+      actorId: user.id,
+      actorName: user.name,
+      actorRole: user.role,
+      action: 'OPEN_REVIEW',
+      entityType: 'REPORT_SUBMISSION',
+      entityId: id,
+      correlationId: 'corr_' + id,
+      details: `Checker ${user.name} opened review for return ${sub.reportKey} (submission ${id})`,
+    });
+
+    if (sub.makerId) {
+      notificationService.addNotification({
+        recipientUserId: sub.makerId,
+        recipientRole: 'MAKER',
+        recipientDepartment: sub.makerDepartment || user.department,
+        targetReportKey: sub.reportKey,
+        title: `Review in Progress: ${sub.reportKey}`,
+        message: `Checker ${user.name} has opened and is reviewing return ${sub.reportKey}.`,
+        category: 'WORKFLOW',
+        priority: 'MEDIUM',
+        actionTab: 'MAKER_WORKSPACE',
+        metadata: {
+          submissionId: id,
+          reportKey: sub.reportKey,
+          checkerId: user.id,
+          checkerName: user.name,
+        },
+      });
+    }
+
+    return sub;
+  }
+
+  /**
+   * Phase 36: Reassign Checkers on an in-flight submission.
+   */
+  public reassignCheckers(
+    id: string,
+    user: UserSession,
+    newCheckerIds: string[],
+    reason?: string
+  ): ReportSubmission {
+    const sub = this.submissions.get(id);
+    if (!sub) throw new Error(`Submission not found: ${id}`);
+
+    if (sub.status !== 'PENDING_CHECKER') {
+      throw new Error(`Cannot reassign reviewers for submission in '${sub.status}' status. Must be PENDING_CHECKER.`);
+    }
+
+    const val = effectiveAccessEngine.validateCheckerSelection(
+      sub.reportKey,
+      { id: sub.makerId || user.id, name: sub.makerName || user.name, role: 'MAKER' } as UserSession,
+      newCheckerIds,
+      sub
+    );
+    if (!val.valid) {
+      throw new Error(val.error);
+    }
+
+    const assignedCheckers = val.selectedCheckers;
+    const reviewerAssignments: ReviewerAssignment[] = assignedCheckers.map((c, idx) => ({
+      checkerId: c.id,
+      checkerName: c.name,
+      assignedAt: new Date().toISOString(),
+      isPrimary: idx === 0,
+      status: 'PENDING',
+    }));
+
+    sub.assignedCheckerIds = newCheckerIds;
+    sub.checkerId = assignedCheckers[0]?.id;
+    sub.checkerName = assignedCheckers[0]?.name;
+    sub.checkerDepartment = assignedCheckers[0]?.department;
+    sub.reviewerAssignments = reviewerAssignments;
+    sub.version = (sub.version || 1) + 1;
+
+    auditService.log({
+      actorId: user.id,
+      actorName: user.name,
+      actorRole: user.role,
+      action: 'REASSIGN_CHECKER',
+      entityType: 'REPORT_SUBMISSION',
+      entityId: id,
+      correlationId: 'corr_' + id,
+      details: `${user.role} ${user.name} reassigned Checkers for ${sub.reportKey} to: ${assignedCheckers.map((c) => c.name).join(', ')}. Reason: ${reason || 'Administrative re-routing'}`,
+    });
+
+    assignedCheckers.forEach((c) => {
+      notificationService.addNotification({
+        recipientUserId: c.id,
+        recipientRole: 'CHECKER',
+        recipientDepartment: c.department,
+        targetReportKey: sub.reportKey,
+        title: `Assigned Return for 4-Eyes Review: ${sub.reportKey}`,
+        message: `You have been assigned to review return ${sub.reportKey} by ${user.name}. Reason: ${reason || 'Workflow re-assignment'}.`,
+        category: 'WORKFLOW',
+        priority: 'HIGH',
+        actionTab: 'CHECKER_INBOX',
+        metadata: {
+          submissionId: id,
+          reportKey: sub.reportKey,
+          assignedBy: user.name,
+        },
+      });
+    });
+
+    this.events.emit('submissionsUpdated', Array.from(this.submissions.values()));
+    this.events.emit('submissionChange', sub);
+    return sub;
+  }
+
+  /**
    * Maker delivers an approved submission to NBE via the NBEAdapter.
    * Requirement: "It's the Maker who makes the final submission of the report to the NBE."
    */

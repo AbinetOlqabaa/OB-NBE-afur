@@ -85,7 +85,9 @@ export async function runPhase47VisibilityAndResponsiveAudit() {
   (globalThis as any).CustomEvent = domWindow.CustomEvent;
   (globalThis as any).Element = domWindow.Element;
   (globalThis as any).HTMLElement = domWindow.HTMLElement;
-  (globalThis as any).navigator = domWindow.navigator;
+  try {
+    Object.defineProperty(globalThis, 'navigator', { value: domWindow.navigator, configurable: true, writable: true });
+  } catch {}
 
   // --------------------------------------------------------------------------
   // SECTION 1: TOP NAVBAR CLEANUP VERIFICATION
@@ -334,3 +336,14 @@ export async function runPhase47VisibilityAndResponsiveAudit() {
   console.log('✅ ALL PHASE 47 DASHBOARD VISIBILITY & RESPONSIVE AUDIT GATES PASSED (100%)');
   console.log('========================================================================\n');
 }
+
+// Self-executing runner
+if (process.argv[1]?.includes('phase47-dashboard-component-visibility-responsive-viewing-audit.test')) {
+  runPhase47VisibilityAndResponsiveAudit()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error('Phase 47 test failed:', err);
+      process.exit(1);
+    });
+}
+

@@ -1335,6 +1335,17 @@ class UserServiceClass {
     }
     return affected;
   }
+
+  /**
+   * Returns active, eligible Checkers for a given return and Maker
+   */
+  public getEligibleCheckersForSubmission(
+    maker: UserSession,
+    reportKey: string,
+    submission?: any
+  ) {
+    return effectiveAccessEngine.getEligibleCheckersForReport(reportKey, maker, submission);
+  }
 }
 
 export const userService = new UserServiceClass();
